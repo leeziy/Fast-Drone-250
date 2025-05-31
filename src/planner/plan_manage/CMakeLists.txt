@@ -53,4 +53,8 @@ add_executable(traj_server src/traj_server.cpp)
 target_link_libraries(traj_server ${catkin_LIBRARIES})
 #add_dependencies(traj_server ${${PROJECT_NAME}_EXPORTED_TARGETS})
 
+add_executable(pub_goal src/pub_goal.cpp)
+target_link_libraries(pub_goal ${catkin_LIBRARIES})
+#add_dependencies(pub_goal ${${PROJECT_NAME}_EXPORTED_TARGETS})
+
 
