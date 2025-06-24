@@ -14,7 +14,7 @@ from geometry_msgs.msg import Vector3, Point
 from mavros_msgs.msg import PositionTarget
 from quadrotor_msgs.msg import PositionCommand
 
-HZ = 100.0
+HZ = 50.0
 HOVER_ALT = 1.5
 FRAME = PositionTarget.FRAME_LOCAL_NED   # MAVROS 内部 ENU→NED
 TYPE_ALL_FIELDS = 0                      # 不忽略任何字段
