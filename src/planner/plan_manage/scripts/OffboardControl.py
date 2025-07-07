@@ -15,7 +15,7 @@ from mavros_msgs.msg import PositionTarget
 from quadrotor_msgs.msg import PositionCommand
 
 HZ = 50.0
-HOVER_ALT = 1.5
+HOVER_ALT = 2
 FRAME = PositionTarget.FRAME_LOCAL_NED   # MAVROS 内部 ENU→NED
 TYPE_ALL_FIELDS = 0                      # 不忽略任何字段
 
