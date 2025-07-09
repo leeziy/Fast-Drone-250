@@ -57,3 +57,6 @@ add_executable(pub_goal src/pub_goal.cpp)
 target_link_libraries(pub_goal ${catkin_LIBRARIES})
 #add_dependencies(pub_goal ${${PROJECT_NAME}_EXPORTED_TARGETS})
 
+add_executable(offboard_control src/offboard_control.cpp)
+target_link_libraries(offboard_control ${catkin_LIBRARIES})
+#add_dependencies(pub_goal ${${PROJECT_NAME}_EXPORTED_TARGETS})
