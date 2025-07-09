@@ -7,7 +7,7 @@ using namespace ego_planner;
 
 int main(int argc, char **argv)
 {
-
+  pthread_setname_np(pthread_self(), "ego_ros");
   ros::init(argc, argv, "ego_planner_node");
   ros::NodeHandle nh("~");
 
@@ -16,6 +16,7 @@ int main(int argc, char **argv)
   rebo_replan.init(nh);
 
   // ros::Duration(1.0).sleep();
+  pthread_setname_np(pthread_self(), "ego_main");
   ros::spin();
 
   return 0;
