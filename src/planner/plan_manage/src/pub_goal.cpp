@@ -8,6 +8,7 @@ ros::Publisher planner_goal_pub;
 
 int main(int argc, char **argv)
 {
+    pthread_setname_np(pthread_self(), "goal_ros");
     ros::init(argc, argv, "pub_goal");
     ros::NodeHandle nh("~");
     
@@ -15,7 +16,7 @@ int main(int argc, char **argv)
     planner_goal_pub = nh.advertise<geometry_msgs::PoseStamped>("/move_base_simple/goal", 1);
 
     double state_desired[3];
-                        
+    pthread_setname_np(pthread_self(), "goal_main");                    
     while(ros::ok())
     {
         cout << "Pls input the goal position:"<<endl;
