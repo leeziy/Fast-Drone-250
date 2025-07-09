@@ -232,6 +232,7 @@ void cmdCallback(const ros::TimerEvent &e)
 
 int main(int argc, char **argv)
 {
+  pthread_setname_np(pthread_self(), "traj_ros");
   ros::init(argc, argv, "traj_server");
   // ros::NodeHandle node;
   ros::NodeHandle nh("~");
@@ -259,6 +260,7 @@ int main(int argc, char **argv)
 
   ROS_WARN("[Traj server]: ready.");
 
+  pthread_setname_np(pthread_self(), "traj_main");
   ros::spin();
 
   return 0;
