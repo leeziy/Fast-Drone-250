@@ -11,6 +11,11 @@
 #include <mavros_msgs/PositionTarget.h>
 #include <quadrotor_msgs/PositionCommand.h>
 
+/********** WCET **********/
+#include <atomic> 
+std::atomic<double> wcet{0.0};
+/**************************/
+
 class OffboardControl
 {
 public:
@@ -73,6 +78,7 @@ private:
   // ---------- 定时发布 ----------
   void timerCb(const ros::TimerEvent&)
   {
+    auto t0 = std::chrono::steady_clock::now();
     mavros_msgs::PositionTarget sp;
     sp.header.stamp      = ros::Time::now();
     sp.coordinate_frame  = FRAME;
@@ -101,6 +107,10 @@ private:
     }
 
     sp_pub_.publish(sp);
+    auto t1 = std::chrono::steady_clock::now();
+    double t_loop = std::chrono::duration<double>(t1 - t0).count();
+    double t_loop_old = wcet.load(std::memory_order_relaxed);
+    while (t_loop > t_loop_old && !wcet.compare_exchange_weak(t_loop_old, t_loop)) {}
   }
 };
 
@@ -111,6 +121,7 @@ int main(int argc, char** argv)
   OffboardControl node;
   pthread_setname_np(pthread_self(), "offboard_main");
   ros::spin();
+  double worst = wcet.load();
+  ROS_WARN("=== offboard_main WCET: %.0f us ===", worst * 1000000);
   return 0;
 }
-
