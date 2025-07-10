@@ -24,6 +24,11 @@ int traj_id_;
 double last_yaw_, last_yaw_dot_;
 double time_forward_;
 
+/********** WCET **********/
+#include <atomic> 
+std::atomic<double> wcet{0.0};
+/**************************/
+
 void bsplineCallback(traj_utils::BsplineConstPtr msg)
 {
   // parse pos traj
@@ -165,7 +170,7 @@ void cmdCallback(const ros::TimerEvent &e)
   /* no publishing before receive traj_ */
   if (!receive_traj_)
     return;
-
+  auto t0 = std::chrono::steady_clock::now();
   ros::Time time_now = ros::Time::now();
   double t_cur = (time_now - start_time_).toSec();
 
@@ -228,6 +233,10 @@ void cmdCallback(const ros::TimerEvent &e)
   last_yaw_ = cmd.yaw;
 
   pos_cmd_pub.publish(cmd);
+  auto t1 = std::chrono::steady_clock::now();
+  double t_loop = std::chrono::duration<double>(t1 - t0).count();
+  double t_loop_old = wcet.load(std::memory_order_relaxed);
+  while (t_loop > t_loop_old && !wcet.compare_exchange_weak(t_loop_old, t_loop)) {}
 }
 
 int main(int argc, char **argv)
@@ -262,6 +271,8 @@ int main(int argc, char **argv)
 
   pthread_setname_np(pthread_self(), "traj_main");
   ros::spin();
+  double worst = wcet.load();
+  ROS_WARN("=== traj_main WCET: %.0f us ===", worst * 1000000);
 
   return 0;
 }
