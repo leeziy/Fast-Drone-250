@@ -122,6 +122,7 @@ int main(int argc, char** argv)
   pthread_setname_np(pthread_self(), "offboard_main");
   ros::spin();
   double worst = wcet.load();
-  ROS_WARN("=== offboard_main WCET: %.0f us ===", worst * 1000000);
+  // ROS_WARN("=== offboard_main WCET: %.0f us ===", worst * 1000000);
+  printf("=== offboard_main WCET: %.0f us ===\n", worst * 1000000);
   return 0;
 }
