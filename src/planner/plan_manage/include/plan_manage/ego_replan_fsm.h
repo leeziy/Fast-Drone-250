@@ -22,6 +22,11 @@
 
 using std::vector;
 
+std::atomic<double> waypoint_wcet{0.0};
+std::atomic<double> odometry_wcet{0.0};
+std::atomic<double> execFSM_wcet{0.0};
+std::atomic<double> checkCollision_wcet{0.0};
+
 namespace ego_planner
 {
 
