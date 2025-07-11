@@ -5,6 +5,36 @@
 
 using namespace ego_planner;
 
+/********** WCET **********/
+#include <signal.h>
+#include <stdio.h>
+#include <unistd.h>
+#include <atomic> 
+std::atomic<double> odometry_wcet{0.0};
+std::atomic<double> checkCollision_wcet{0.0};
+std::atomic<double> execFSM_wcet{0.0};
+std::atomic<double> waypoint_wcet{0.0};
+std::atomic<double> depthOdom_wcet{0.0};
+std::atomic<double> updateOccupancy_wcet{0.0};
+std::atomic<double> vis_wcet{0.0};
+void SigHandle(int sig)
+{
+    if (sig == SIGUSR1)
+    {
+        odometry_wcet.store(0.0);
+        checkCollision_wcet.store(0.0);
+        execFSM_wcet.store(0.0);
+        waypoint_wcet.store(0.0);
+        depthOdom_wcet.store(0.0);
+        updateOccupancy_wcet.store(0.0);
+        vis_wcet.store(0.0);
+        odometry_wcet.store(0.0);
+        ROS_WARN("Received SIGUSR1: WCET records cleared!");
+        return;
+    }
+}
+/**************************/
+
 int main(int argc, char **argv)
 {
   pthread_setname_np(pthread_self(), "ego_ros");
@@ -16,8 +46,14 @@ int main(int argc, char **argv)
   rebo_replan.init(nh);
 
   // ros::Duration(1.0).sleep();
+  pthread_setname_np(pthread_self(), "ego_spin");
+  ros::AsyncSpinner spinner(4);
+  signal(SIGUSR1, SigHandle);
+  spinner.start();
   pthread_setname_np(pthread_self(), "ego_main");
-  ros::spin();
+  ros::waitForShutdown();
+  ROS_INFO("Stopping mavros...");
+  spinner.stop();
 
   return 0;
 }
