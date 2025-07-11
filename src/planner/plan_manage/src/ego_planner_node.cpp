@@ -26,14 +26,13 @@ void SigHandle(int sig)
 {
     if (sig == SIGUSR1)
     {
-        odometry_wcet.store(0.0);
-        checkCollision_wcet.store(0.0);
-        execFSM_wcet.store(0.0);
         waypoint_wcet.store(0.0);
-        ::depthOdom_wcet.store(0.0);
-        ::updateOccupancy_wcet.store(0.0);
-        ::vis_wcet.store(0.0);
         odometry_wcet.store(0.0);
+        execFSM_wcet.store(0.0);
+        checkCollision_wcet.store(0.0);
+        ::vis_wcet.store(0.0);
+        ::updateOccupancy_wcet.store(0.0);
+        ::depthOdom_wcet.store(0.0);
         ROS_WARN("Received SIGUSR1: WCET records cleared!");
         return;
     }
