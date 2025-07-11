@@ -639,6 +639,7 @@ void GridMap::clearAndInflateLocalMap()
 
 }
 
+std::atomic<double> vis_wcet{0.0};
 void GridMap::visCallback(const ros::TimerEvent & /*event*/)
 {
   auto t0 = std::chrono::steady_clock::now();
@@ -652,6 +653,7 @@ void GridMap::visCallback(const ros::TimerEvent & /*event*/)
   while (t_loop > t_loop_old && !vis_wcet.compare_exchange_weak(t_loop_old, t_loop)) {}
 }
 
+std::atomic<double> updateOccupancy_wcet{0.0};
 void GridMap::updateOccupancyCallback(const ros::TimerEvent & /*event*/)
 {
   auto t0 = std::chrono::steady_clock::now();
@@ -981,6 +983,7 @@ void GridMap::extrinsicCallback(const nav_msgs::OdometryConstPtr &odom)
   md_.cam2body_(3, 3) = 1.0;
 }
 
+std::atomic<double> depthOdom_wcet{0.0};
 void GridMap::depthOdomCallback(const sensor_msgs::ImageConstPtr &img,
                                 const nav_msgs::OdometryConstPtr &odom)
 {
