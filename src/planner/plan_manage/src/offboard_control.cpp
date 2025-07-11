@@ -14,6 +14,15 @@
 /********** WCET **********/
 #include <atomic> 
 std::atomic<double> wcet{0.0};
+void SigHandle(int sig)
+{
+    if (sig == SIGUSR1)
+    {
+        wcet.store(0.0);
+        ROS_WARN("Received SIGUSR1: WCET records cleared!");
+        return;
+    }
+}
 /**************************/
 
 class OffboardControl
@@ -120,6 +129,7 @@ int main(int argc, char** argv)
   ros::init(argc, argv, "OffboardControl");
   OffboardControl node;
   pthread_setname_np(pthread_self(), "offboard_main");
+  signal(SIGUSR1, SigHandle);
   ros::spin();
   double worst = wcet.load();
   // ROS_WARN("=== offboard_main WCET: %.0f us ===", worst * 1000000);
