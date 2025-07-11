@@ -208,7 +208,6 @@ namespace ego_planner
     init_pt_ = odom_pos_;
   }
 
-  std::atomic<double> waypoint_wcet{0.0};
   void EGOReplanFSM::waypointCallback(const geometry_msgs::PoseStampedPtr &msg)
   {
     auto t0 = std::chrono::steady_clock::now();
@@ -229,7 +228,6 @@ namespace ego_planner
     while (t_loop > t_loop_old && !waypoint_wcet.compare_exchange_weak(t_loop_old, t_loop)) {}
   }
 
-  std::atomic<double> odometry_wcet{0.0};
   void EGOReplanFSM::odometryCallback(const nav_msgs::OdometryConstPtr &msg)
   {
     auto t0 = std::chrono::steady_clock::now();
@@ -443,7 +441,6 @@ namespace ego_planner
     cout << "[FSM]: state: " + state_str[int(exec_state_)] << endl;
   }
 
-  std::atomic<double> execFSM_wcet{0.0};
   void EGOReplanFSM::execFSMCallback(const ros::TimerEvent &e)
   {
     auto t0 = std::chrono::steady_clock::now();
@@ -697,7 +694,6 @@ namespace ego_planner
     return true;
   }
 
-  std::atomic<double> checkCollision_wcet{0.0};
   void EGOReplanFSM::checkCollisionCallback(const ros::TimerEvent &e)
   {
     auto t0 = std::chrono::steady_clock::now();
