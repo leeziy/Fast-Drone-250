@@ -25,10 +25,10 @@ using std::vector;
 namespace ego_planner
 {
 
-  std::atomic<double> waypoint_wcet;
-  std::atomic<double> odometry_wcet;
-  std::atomic<double> execFSM_wcet;
-  std::atomic<double> checkCollision_wcet;
+  extern std::atomic<double> waypoint_wcet;
+  extern std::atomic<double> odometry_wcet;
+  extern std::atomic<double> execFSM_wcet;
+  extern std::atomic<double> checkCollision_wcet;
 
   class EGOReplanFSM
   {
