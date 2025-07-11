@@ -26,9 +26,9 @@
 
 #define logit(x) (log((x) / (1 - (x))))
 
-std::atomic<double> vis_wcet{0.0};
-std::atomic<double> updateOccupancy_wcet{0.0};
-std::atomic<double> depthOdom_wcet{0.0};
+extern std::atomic<double> vis_wcet;
+extern std::atomic<double> updateOccupancy_wcet;
+extern std::atomic<double> depthOdom_wcet;
 
 using namespace std;
 
