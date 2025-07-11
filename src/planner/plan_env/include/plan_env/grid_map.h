@@ -26,10 +26,6 @@
 
 #define logit(x) (log((x) / (1 - (x))))
 
-extern std::atomic<double> vis_wcet;
-extern std::atomic<double> updateOccupancy_wcet;
-extern std::atomic<double> depthOdom_wcet;
-
 using namespace std;
 
 // voxel hashing
