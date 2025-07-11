@@ -706,8 +706,7 @@ namespace ego_planner
     auto map = planner_manager_->grid_map_;
 
     if (exec_state_ == WAIT_TARGET || info->start_time_.toSec() < 1e-5)
-      // return;
-      goto force_return;
+      return;
 
     /* ---------- check lost of depth ---------- */
     if (map->getOdomDepthTimeout())
