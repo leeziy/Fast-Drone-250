@@ -57,9 +57,30 @@ int main(int argc, char **argv)
   spinner.start();
   pthread_setname_np(pthread_self(), "ego_main");
   ros::waitForShutdown();
-  ROS_INFO("Stopping mavros...");
+  ROS_INFO("Stopping EgoPlanner...");
   spinner.stop();
-
+  
+  double waypoint_worst = waypoint_wcet.load();
+  printf("=== waypoint WCET: %.0f us ===\n", waypoint_worst * 1000000);
+  
+  double odometry_worst = odometry_wcet.load();
+  printf("=== odometry WCET: %.0f us ===\n", odometry_worst * 1000000);
+  
+  double execFSM_worst = execFSM_wcet.load();
+  printf("=== execFSM WCET: %.0f us ===\n", execFSM_worst * 1000000);
+  
+  double checkCollision_worst = checkCollision_wcet.load();
+  printf("=== checkCollision WCET: %.0f us ===\n", checkCollision_worst * 1000000);
+    
+  double vis_worst = ::vis_wcet.load();
+  printf("=== vis WCET: %.0f us ===\n", vis_worst * 1000000);
+  
+  double updateOccupancy_worst = ::updateOccupancy_wcet.load();
+  printf("=== updateOccupancy WCET: %.0f us ===\n", updateOccupancy_worst * 1000000);
+  
+  double depthOdom_worst = ::depthOdom_wcet.load();
+  printf("=== depthOdom WCET: %.0f us ===\n", depthOdom_worst * 1000000);
+  
   return 0;
 }
 
