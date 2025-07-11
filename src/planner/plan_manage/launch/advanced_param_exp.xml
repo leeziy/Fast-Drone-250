@@ -117,7 +117,7 @@
     <param name="grid_map/min_ray_length" value="0.5"/>
     <param name="grid_map/max_ray_length" value="7.0"/>
 
-    <param name="grid_map/visualization_truncate_height"   value="50"/>
+    <param name="grid_map/visualization_truncate_height"   value="10"/>
     <param name="grid_map/show_occ_time"  value="false"/>
     <param name="grid_map/pose_type"     value="2"/>  
     <param name="grid_map/frame_id"      value="odom"/>
