@@ -12,6 +12,9 @@
 #include <quadrotor_msgs/PositionCommand.h>
 
 /********** WCET **********/
+#include <signal.h>
+#include <stdio.h>
+#include <unistd.h>
 #include <atomic> 
 std::atomic<double> wcet{0.0};
 void SigHandle(int sig)
