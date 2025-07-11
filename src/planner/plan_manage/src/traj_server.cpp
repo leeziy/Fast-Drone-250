@@ -25,8 +25,20 @@ double last_yaw_, last_yaw_dot_;
 double time_forward_;
 
 /********** WCET **********/
+#include <signal.h>
+#include <stdio.h>
+#include <unistd.h>
 #include <atomic> 
 std::atomic<double> wcet{0.0};
+void SigHandle(int sig)
+{
+    if (sig == SIGUSR1)
+    {
+        wcet.store(0.0);
+        ROS_WARN("Received SIGUSR1: WCET records cleared!");
+        return;
+    }
+}
 /**************************/
 
 void bsplineCallback(traj_utils::BsplineConstPtr msg)
@@ -270,6 +282,7 @@ int main(int argc, char **argv)
   ROS_WARN("[Traj server]: ready.");
 
   pthread_setname_np(pthread_self(), "traj_main");
+  signal(SIGUSR1, SigHandle);
   ros::spin();
   double worst = wcet.load();
   // ROS_WARN("=== traj_main WCET: %.0f us ===", worst * 1000000);
