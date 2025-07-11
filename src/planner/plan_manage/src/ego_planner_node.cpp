@@ -11,14 +11,14 @@ using namespace ego_planner;
 #include <unistd.h>
 #include <atomic> 
 
-extern std::atomic<double> ego_planner::waypoint_wcet;
-extern std::atomic<double> ego_planner::odometry_wcet;
-extern std::atomic<double> ego_planner::execFSM_wcet;
-extern std::atomic<double> ego_planner::checkCollision_wcet;
+extern std::atomic<double> waypoint_wcet;
+extern std::atomic<double> odometry_wcet;
+extern std::atomic<double> execFSM_wcet;
+extern std::atomic<double> checkCollision_wcet;
 
-extern std::atomic<double> vis_wcet;
-extern std::atomic<double> updateOccupancy_wcet;
-extern std::atomic<double> depthOdom_wcet;
+extern std::atomic<double> ::vis_wcet;
+extern std::atomic<double> ::updateOccupancy_wcet;
+extern std::atomic<double> ::depthOdom_wcet;
 
 void SigHandle(int sig)
 {
@@ -28,9 +28,9 @@ void SigHandle(int sig)
         checkCollision_wcet.store(0.0);
         execFSM_wcet.store(0.0);
         waypoint_wcet.store(0.0);
-        depthOdom_wcet.store(0.0);
-        updateOccupancy_wcet.store(0.0);
-        vis_wcet.store(0.0);
+        ::depthOdom_wcet.store(0.0);
+        ::updateOccupancy_wcet.store(0.0);
+        ::vis_wcet.store(0.0);
         odometry_wcet.store(0.0);
         ROS_WARN("Received SIGUSR1: WCET records cleared!");
         return;
