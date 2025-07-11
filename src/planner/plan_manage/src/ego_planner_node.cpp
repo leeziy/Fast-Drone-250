@@ -10,13 +10,16 @@ using namespace ego_planner;
 #include <stdio.h>
 #include <unistd.h>
 #include <atomic> 
-std::atomic<double> odometry_wcet{0.0};
-std::atomic<double> checkCollision_wcet{0.0};
-std::atomic<double> execFSM_wcet{0.0};
-std::atomic<double> waypoint_wcet{0.0};
-std::atomic<double> depthOdom_wcet{0.0};
-std::atomic<double> updateOccupancy_wcet{0.0};
-std::atomic<double> vis_wcet{0.0};
+
+extern std::atomic<double> waypoint_wcet;
+extern std::atomic<double> odometry_wcet;
+extern std::atomic<double> execFSM_wcet;
+extern std::atomic<double> checkCollision_wcet;
+
+extern std::atomic<double> vis_wcet;
+extern std::atomic<double> updateOccupancy_wcet;
+extern std::atomic<double> depthOdom_wcet;
+
 void SigHandle(int sig)
 {
     if (sig == SIGUSR1)

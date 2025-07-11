@@ -208,8 +208,10 @@ namespace ego_planner
     init_pt_ = odom_pos_;
   }
 
+  std::atomic<double> waypoint_wcet{0.0};
   void EGOReplanFSM::waypointCallback(const geometry_msgs::PoseStampedPtr &msg)
   {
+    auto t0 = std::chrono::steady_clock::now();
     if (msg->pose.position.z < -0.1)
       return;
 
@@ -220,10 +222,18 @@ namespace ego_planner
     Eigen::Vector3d end_wp(msg->pose.position.x, msg->pose.position.y, msg->pose.position.z);
 
     planNextWaypoint(end_wp);
+
+    auto t1 = std::chrono::steady_clock::now();
+    double t_loop = std::chrono::duration<double>(t1 - t0).count();
+    double t_loop_old = waypoint_wcet.load(std::memory_order_relaxed);
+    while (t_loop > t_loop_old && !waypoint_wcet.compare_exchange_weak(t_loop_old, t_loop)) {}
   }
 
+  std::atomic<double> odometry_wcet{0.0};
   void EGOReplanFSM::odometryCallback(const nav_msgs::OdometryConstPtr &msg)
   {
+    auto t0 = std::chrono::steady_clock::now();
+    
     odom_pos_(0) = msg->pose.pose.position.x;
     odom_pos_(1) = msg->pose.pose.position.y;
     odom_pos_(2) = msg->pose.pose.position.z;
@@ -240,6 +250,11 @@ namespace ego_planner
     odom_orient_.z() = msg->pose.pose.orientation.z;
 
     have_odom_ = true;
+
+    auto t1 = std::chrono::steady_clock::now();
+    double t_loop = std::chrono::duration<double>(t1 - t0).count();
+    double t_loop_old = odometry_wcet.load(std::memory_order_relaxed);
+    while (t_loop > t_loop_old && !odometry_wcet.compare_exchange_weak(t_loop_old, t_loop)) {}
   }
 
   void EGOReplanFSM::BroadcastBsplineCallback(const traj_utils::BsplinePtr &msg)
@@ -428,8 +443,11 @@ namespace ego_planner
     cout << "[FSM]: state: " + state_str[int(exec_state_)] << endl;
   }
 
+  std::atomic<double> execFSM_wcet{0.0};
   void EGOReplanFSM::execFSMCallback(const ros::TimerEvent &e)
   {
+    auto t0 = std::chrono::steady_clock::now();
+    
     exec_timer_.stop(); // To avoid blockage
 
     static int fsm_num = 0;
@@ -611,8 +629,13 @@ namespace ego_planner
     data_disp_.header.stamp = ros::Time::now();
     data_disp_pub_.publish(data_disp_);
 
-  force_return:;
+    force_return:;
     exec_timer_.start();
+
+    auto t1 = std::chrono::steady_clock::now();
+    double t_loop = std::chrono::duration<double>(t1 - t0).count();
+    double t_loop_old = execFSM_wcet.load(std::memory_order_relaxed);
+    while (t_loop > t_loop_old && !execFSM_wcet.compare_exchange_weak(t_loop_old, t_loop)) {}
   }
 
   bool EGOReplanFSM::planFromGlobalTraj(const int trial_times /*=1*/) //zx-todo
@@ -674,14 +697,17 @@ namespace ego_planner
     return true;
   }
 
+  std::atomic<double> checkCollision_wcet{0.0};
   void EGOReplanFSM::checkCollisionCallback(const ros::TimerEvent &e)
   {
-
+    auto t0 = std::chrono::steady_clock::now();
+    
     LocalTrajData *info = &planner_manager_->local_data_;
     auto map = planner_manager_->grid_map_;
 
     if (exec_state_ == WAIT_TARGET || info->start_time_.toSec() < 1e-5)
-      return;
+      // return;
+      goto force_return;
 
     /* ---------- check lost of depth ---------- */
     if (map->getOdomDepthTimeout())
@@ -731,7 +757,8 @@ namespace ego_planner
         {
           changeFSMExecState(EXEC_TRAJ, "SAFETY");
           publishSwarmTrajs(false);
-          return;
+          // return;
+          goto force_return;
         }
         else
         {
@@ -745,11 +772,17 @@ namespace ego_planner
             //ROS_WARN("current traj in collision, replan.");
             changeFSMExecState(REPLAN_TRAJ, "SAFETY");
           }
-          return;
+          // return;
+          goto force_return;
         }
         break;
       }
     }
+    force_return:;
+    auto t1 = std::chrono::steady_clock::now();
+    double t_loop = std::chrono::duration<double>(t1 - t0).count();
+    double t_loop_old = checkCollision_wcet.load(std::memory_order_relaxed);
+    while (t_loop > t_loop_old && !checkCollision_wcet.compare_exchange_weak(t_loop_old, t_loop)) {}
   }
 
   bool EGOReplanFSM::callReboundReplan(bool flag_use_poly_init, bool flag_randomPolyTraj)
