@@ -16,9 +16,9 @@ extern std::atomic<double> odometry_wcet;
 extern std::atomic<double> execFSM_wcet;
 extern std::atomic<double> checkCollision_wcet;
 
-extern std::atomic<double> ::vis_wcet;
-extern std::atomic<double> ::updateOccupancy_wcet;
-extern std::atomic<double> ::depthOdom_wcet;
+extern std::atomic<double> vis_wcet;
+extern std::atomic<double> updateOccupancy_wcet;
+extern std::atomic<double> depthOdom_wcet;
 
 void SigHandle(int sig)
 {
