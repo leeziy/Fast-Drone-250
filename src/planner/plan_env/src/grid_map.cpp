@@ -98,40 +98,34 @@ void GridMap::initMap(ros::NodeHandle &nh)
       0.0, 0.0, 0.0, 1.0;
 
   /* init callback */
+  /* ---------- 1. depth + odom 同步回调 ---------- */
+  depthOdom_nh_.reset(new ros::NodeHandle(node_.getNamespace(), &depthOdom_queue_));
 
-  depth_sub_.reset(new message_filters::Subscriber<sensor_msgs::Image>(node_, "grid_map/depth", 50));
-  extrinsic_sub_ = node_.subscribe<nav_msgs::Odometry>(
-      "/vins_fusion/extrinsic", 10, &GridMap::extrinsicCallback, this); //sub
+  depth_sub_.reset(new message_filters::Subscriber<sensor_msgs::Image>(*depthOdom_nh_, "grid_map/depth", 50));
+  odom_sub_.reset(new message_filters::Subscriber<nav_msgs::Odometry>(*depthOdom_nh_, "grid_map/odom", 100, ros::TransportHints().tcpNoDelay()));
 
-  if (mp_.pose_type_ == POSE_STAMPED)
-  {
-    pose_sub_.reset(
-        new message_filters::Subscriber<geometry_msgs::PoseStamped>(node_, "grid_map/pose", 25));
+  sync_image_odom_.reset(new message_filters::Synchronizer<SyncPolicyImageOdom>(SyncPolicyImageOdom(100), *depth_sub_, *odom_sub_));
+  sync_image_odom_->registerCallback(boost::bind(&GridMap::depthOdomCallback, this, _1, _2));
 
-    sync_image_pose_.reset(new message_filters::Synchronizer<SyncPolicyImagePose>(
-        SyncPolicyImagePose(100), *depth_sub_, *pose_sub_));
-    sync_image_pose_->registerCallback(boost::bind(&GridMap::depthPoseCallback, this, _1, _2));
-  }
-  else if (mp_.pose_type_ == ODOMETRY)
-  {
-    odom_sub_.reset(new message_filters::Subscriber<nav_msgs::Odometry>(node_, "grid_map/odom", 100, ros::TransportHints().tcpNoDelay()));
+  depthOdom_spinner_ = std::make_unique<ros::AsyncSpinner>(1, &depthOdom_queue_);
+  pthread_setname_np(pthread_self(), "ego_depthOdom");
+  depthOdom_spinner_->start();
 
-    sync_image_odom_.reset(new message_filters::Synchronizer<SyncPolicyImageOdom>(
-        SyncPolicyImageOdom(100), *depth_sub_, *odom_sub_));
-    sync_image_odom_->registerCallback(boost::bind(&GridMap::depthOdomCallback, this, _1, _2));
-  }
+  /* ---------- 2. 占用网格更新定时器 ---------- */
+  updateOccupancy_nh_.reset(new ros::NodeHandle(node_.getNamespace(), &updateOccupancy_queue_));
+  occ_timer_ = updateOccupancy_nh_->createTimer(ros::Duration(0.05), &GridMap::updateOccupancyCallback, this);
+  updateOccupancy_spinner_ = std::make_unique<ros::AsyncSpinner>(1, &updateOccupancy_queue_);
+  pthread_setname_np(pthread_self(), "ego_updateOcc");
+  updateOccupancy_spinner_->start();
 
-  // use odometry and point cloud
-  indep_cloud_sub_ =
-      node_.subscribe<sensor_msgs::PointCloud2>("grid_map/cloud", 10, &GridMap::cloudCallback, this);
-  indep_odom_sub_ =
-      node_.subscribe<nav_msgs::Odometry>("grid_map/odom", 10, &GridMap::odomCallback, this);
-
-  occ_timer_ = node_.createTimer(ros::Duration(0.05), &GridMap::updateOccupancyCallback, this);
-  vis_timer_ = node_.createTimer(ros::Duration(0.11), &GridMap::visCallback, this);
-
-  map_pub_ = node_.advertise<sensor_msgs::PointCloud2>("grid_map/occupancy", 10);
-  map_inf_pub_ = node_.advertise<sensor_msgs::PointCloud2>("grid_map/occupancy_inflate", 10);
+  /* ---------- 3. 可视化定时器 ---------- */
+  vis_nh_.reset(new ros::NodeHandle(node_.getNamespace(), &vis_queue_));
+  vis_timer_ = vis_nh_->createTimer(ros::Duration(0.11), &GridMap::visCallback, this);
+  vis_spinner_ = std::make_unique<ros::AsyncSpinner>(1, &vis_queue_);
+  map_pub_ = vis_nh_->advertise<sensor_msgs::PointCloud2>("grid_map/occupancy", 10);
+  map_inf_pub_ = vis_nh_->advertise<sensor_msgs::PointCloud2>("grid_map/occupancy_inflate", 10);
+  pthread_setname_np(pthread_self(), "ego_vis");
+  vis_spinner_->start();
 
   md_.occ_need_update_ = false;
   md_.local_updated_ = false;
@@ -152,6 +146,13 @@ void GridMap::initMap(ros::NodeHandle &nh)
   // rand_noise2_ = normal_distribution<double>(0, 0.2);
   // random_device rd;
   // eng_ = default_random_engine(rd());
+}
+
+void GridMap::shutdown()
+{
+  depthOdom_spinner_->stop();
+  updateOccupancy_spinner_->stop();
+  vis_spinner_->stop();
 }
 
 void GridMap::resetBuffer()

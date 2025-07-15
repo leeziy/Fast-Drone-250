@@ -81,6 +81,23 @@ namespace ego_planner
 
     /* ROS utils */
     ros::NodeHandle node_;
+
+    ros::CallbackQueue waypoint_queue_;
+    std::shared_ptr<ros::NodeHandle> waypoint_nh_;
+    std::unique_ptr<ros::AsyncSpinner> waypoint_spinner_;
+
+    ros::CallbackQueue odometry_queue_;
+    std::shared_ptr<ros::NodeHandle> odometry_nh_;
+    std::unique_ptr<ros::AsyncSpinner> odometry_spinner_;
+
+    ros::CallbackQueue execFSM_queue_;
+    std::shared_ptr<ros::NodeHandle> execFSM_nh_;
+    std::unique_ptr<ros::AsyncSpinner> execFSM_spinner_;
+
+    ros::CallbackQueue checkCollision_queue_;
+    std::shared_ptr<ros::NodeHandle> checkCollision_nh_;
+    std::unique_ptr<ros::AsyncSpinner> checkCollision_spinner_;
+
     ros::Timer exec_timer_, safety_timer_;
     ros::Subscriber waypoint_sub_, odom_sub_, swarm_trajs_sub_, broadcast_bspline_sub_, trigger_sub_;
     ros::Publisher replan_pub_, new_pub_, bspline_pub_, data_disp_pub_, swarm_trajs_pub_, broadcast_bspline_pub_;
@@ -118,9 +135,12 @@ namespace ego_planner
     }
     ~EGOReplanFSM()
     {
+      shutdown();
     }
 
     void init(ros::NodeHandle &nh);
+    
+    void shutdown();
 
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW
   };

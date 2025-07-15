@@ -1,4 +1,3 @@
-
 #include <plan_manage/ego_replan_fsm.h>
 
 namespace ego_planner
@@ -40,10 +39,33 @@ namespace ego_planner
     planner_manager_->setDroneIdtoOpt();
 
     /* callback */
-    exec_timer_ = nh.createTimer(ros::Duration(0.01), &EGOReplanFSM::execFSMCallback, this);
-    safety_timer_ = nh.createTimer(ros::Duration(0.05), &EGOReplanFSM::checkCollisionCallback, this);
 
-    odom_sub_ = nh.subscribe("odom_world", 1, &EGOReplanFSM::odometryCallback, this);
+    waypoint_nh_.reset(new ros::NodeHandle(node_.getNamespace(), &waypoint_queue_));
+    waypoint_sub_ = waypoint_nh_->subscribe("/move_base_simple/goal", 1, &EGOReplanFSM::waypointCallback, this);
+    waypoint_spinner_ = std::make_unique<ros::AsyncSpinner>(1, &waypoint_queue_);
+    pthread_setname_np(pthread_self(), "ego_waypoint");
+    waypoint_spinner_->start();
+
+    odometry_nh_.reset(new ros::NodeHandle(node_.getNamespace(), &odometry_queue_));
+    odom_sub_ = odometry_nh_->subscribe("odom_world", 1, &EGOReplanFSM::odometryCallback, this);
+    odometry_spinner_ = std::make_unique<ros::AsyncSpinner>(1, &odometry_queue_);
+    pthread_setname_np(pthread_self(), "ego_waypoint");
+    odometry_spinner_->start();
+
+    execFSM_nh_.reset(new ros::NodeHandle(node_.getNamespace(), &execFSM_queue_));
+    exec_timer_ = execFSM_nh_->createTimer(ros::Duration(0.01), &EGOReplanFSM::execFSMCallback, this);
+    execFSM_spinner_ = std::make_unique<ros::AsyncSpinner>(1, &execFSM_queue_);
+    bspline_pub_ = execFSM_nh_->advertise<traj_utils::Bspline>("planning/bspline", 10);
+    data_disp_pub_ = execFSM_nh_->advertise<traj_utils::DataDisp>("planning/data_display", 100);
+    pthread_setname_np(pthread_self(), "ego_execFSM");
+    execFSM_spinner_->start();
+
+    checkCollision_nh_.reset(new ros::NodeHandle(node_.getNamespace(), &checkCollision_queue_));
+    safety_timer_ = checkCollision_nh_->createTimer(ros::Duration(0.05), &EGOReplanFSM::checkCollisionCallback, this);
+    checkCollision_spinner_ = std::make_unique<ros::AsyncSpinner>(1, &checkCollision_queue_);
+    pthread_setname_np(pthread_self(), "ego_checkColl");
+    checkCollision_spinner_->start();
+
 
     if (planner_manager_->pp_.drone_id >= 1)
     {
@@ -56,37 +78,6 @@ namespace ego_planner
     broadcast_bspline_pub_ = nh.advertise<traj_utils::Bspline>("planning/broadcast_bspline_from_planner", 10);
     broadcast_bspline_sub_ = nh.subscribe("planning/broadcast_bspline_to_planner", 100, &EGOReplanFSM::BroadcastBsplineCallback, this, ros::TransportHints().tcpNoDelay());
 
-    bspline_pub_ = nh.advertise<traj_utils::Bspline>("planning/bspline", 10);
-    data_disp_pub_ = nh.advertise<traj_utils::DataDisp>("planning/data_display", 100);
-
-    if (target_type_ == TARGET_TYPE::MANUAL_TARGET)
-    {
-      waypoint_sub_ = nh.subscribe("/move_base_simple/goal", 1, &EGOReplanFSM::waypointCallback, this);
-    }
-    else if (target_type_ == TARGET_TYPE::PRESET_TARGET)
-    {
-      trigger_sub_ = nh.subscribe("/traj_start_trigger", 1, &EGOReplanFSM::triggerCallback, this);
-
-      ROS_INFO("Wait for 1 second.");
-      int count = 0;
-      while (ros::ok() && count++ < 1000)
-      {
-        ros::spinOnce();
-        ros::Duration(0.001).sleep();
-      }
-
-      ROS_WARN("Waiting for trigger from [n3ctrl] from RC");
-
-      while (ros::ok() && (!have_odom_ || !have_trigger_))
-      {
-        ros::spinOnce();
-        ros::Duration(0.001).sleep();
-      }
-
-      readGivenWps();
-    }
-    else
-      cout << "Wrong target_type_ value! target_type_=" << target_type_ << endl;
   }
 
   void EGOReplanFSM::readGivenWps()
