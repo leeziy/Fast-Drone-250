@@ -20,6 +20,8 @@
 #include <plan_manage/planner_manager.h>
 #include <traj_utils/planning_visualization.h>
 
+#include <ros/callback_queue.h>
+
 using std::vector;
 
 namespace ego_planner

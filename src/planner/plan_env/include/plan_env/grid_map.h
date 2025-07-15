@@ -24,6 +24,8 @@
 
 #include <plan_env/raycast.h>
 
+#include <ros/callback_queue.h>
+
 #define logit(x) (log((x) / (1 - (x))))
 
 using namespace std;
