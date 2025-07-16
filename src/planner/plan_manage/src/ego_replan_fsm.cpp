@@ -84,7 +84,7 @@ namespace ego_planner
 
   }
 
-  void shutdown()
+  void EGOReplanFSM::shutdown()
   {
     waypoint_spinner_->stop();
     odometry_spinner_->stop();
