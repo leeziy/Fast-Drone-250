@@ -44,15 +44,11 @@ namespace ego_planner
     waypoint_nh_->setCallbackQueue(&waypoint_queue_);
     waypoint_sub_ = waypoint_nh_->subscribe("/move_base_simple/goal", 1, &EGOReplanFSM::waypointCallback, this);
     waypoint_spinner_ = std::make_unique<ros::AsyncSpinner>(1, &waypoint_queue_);
-    pthread_setname_np(pthread_self(), "ego_waypoint");
-    waypoint_spinner_->start();
 
     odometry_nh_.reset(new ros::NodeHandle(nh));
     odometry_nh_->setCallbackQueue(&odometry_queue_);
     odometry_sub_ = odometry_nh_->subscribe("odom_world", 1, &EGOReplanFSM::odometryCallback, this);
     odometry_spinner_ = std::make_unique<ros::AsyncSpinner>(1, &odometry_queue_);
-    pthread_setname_np(pthread_self(), "ego_waypoint");
-    odometry_spinner_->start();
 
     execFSM_nh_.reset(new ros::NodeHandle(nh));
     execFSM_nh_->setCallbackQueue(&execFSM_queue_);
@@ -60,16 +56,11 @@ namespace ego_planner
     execFSM_spinner_ = std::make_unique<ros::AsyncSpinner>(1, &execFSM_queue_);
     bspline_pub_ = execFSM_nh_->advertise<traj_utils::Bspline>("planning/bspline", 10);
     data_disp_pub_ = execFSM_nh_->advertise<traj_utils::DataDisp>("planning/data_display", 100);
-    pthread_setname_np(pthread_self(), "ego_execFSM");
-    execFSM_spinner_->start();
 
     checkCollision_nh_.reset(new ros::NodeHandle(nh));
     checkCollision_nh_->setCallbackQueue(&checkCollision_queue_);
     safety_timer_ = checkCollision_nh_->createTimer(ros::Duration(0.05), &EGOReplanFSM::checkCollisionCallback, this);
     checkCollision_spinner_ = std::make_unique<ros::AsyncSpinner>(1, &checkCollision_queue_);
-    pthread_setname_np(pthread_self(), "ego_checkColl");
-    checkCollision_spinner_->start();
-
 
     if (planner_manager_->pp_.drone_id >= 1)
     {
@@ -81,7 +72,16 @@ namespace ego_planner
 
     broadcast_bspline_pub_ = nh.advertise<traj_utils::Bspline>("planning/broadcast_bspline_from_planner", 10);
     broadcast_bspline_sub_ = nh.subscribe("planning/broadcast_bspline_to_planner", 100, &EGOReplanFSM::BroadcastBsplineCallback, this, ros::TransportHints().tcpNoDelay());
-
+    
+    pthread_setname_np(pthread_self(), "ego_waypoint");
+    waypoint_spinner_->start();
+    pthread_setname_np(pthread_self(), "ego_waypoint");
+    odometry_spinner_->start();
+    pthread_setname_np(pthread_self(), "ego_execFSM");
+    execFSM_spinner_->start();
+    pthread_setname_np(pthread_self(), "ego_checkColl");
+    checkCollision_spinner_->start();
+    pthread_setname_np(pthread_self(), "ego_ros");
   }
 
   void EGOReplanFSM::shutdown()
