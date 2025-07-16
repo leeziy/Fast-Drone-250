@@ -40,7 +40,7 @@ namespace ego_planner
       REPLAN_TRAJ,
       EXEC_TRAJ,
       EMERGENCY_STOP,
-      SEQUENTIAL_START
+      // SEQUENTIAL_START
     };
     enum TARGET_TYPE
     {
