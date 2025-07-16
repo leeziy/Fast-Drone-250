@@ -84,6 +84,14 @@ namespace ego_planner
 
   }
 
+  void shutdown()
+  {
+    waypoint_spinner_->stop();
+    odometry_spinner_->stop();
+    execFSM_spinner_->stop();
+    checkCollision_spinner_->stop();
+  }
+
   void EGOReplanFSM::readGivenWps()
   {
     if (waypoint_num_ <= 0)
