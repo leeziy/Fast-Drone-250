@@ -497,34 +497,34 @@ namespace ego_planner
       break;
     }
 
-    // case SEQUENTIAL_START: // for swarm
-    // {
-    //   // cout << "id=" << planner_manager_->pp_.drone_id << " have_recv_pre_agent_=" << have_recv_pre_agent_ << endl;
-    //   if (planner_manager_->pp_.drone_id <= 0 || (planner_manager_->pp_.drone_id >= 1 && have_recv_pre_agent_))
-    //   {
-    //     if (have_odom_ && have_target_ && have_trigger_)
-    //     {
-    //       bool success = planFromGlobalTraj(10); // zx-todo
-    //       if (success)
-    //       {
-    //         changeFSMExecState(EXEC_TRAJ, "FSM");
+    case SEQUENTIAL_START: // for swarm
+    {
+      // cout << "id=" << planner_manager_->pp_.drone_id << " have_recv_pre_agent_=" << have_recv_pre_agent_ << endl;
+      if (planner_manager_->pp_.drone_id <= 0 || (planner_manager_->pp_.drone_id >= 1 && have_recv_pre_agent_))
+      {
+        if (have_odom_ && have_target_ && have_trigger_)
+        {
+          bool success = planFromGlobalTraj(10); // zx-todo
+          if (success)
+          {
+            changeFSMExecState(EXEC_TRAJ, "FSM");
 
-    //         publishSwarmTrajs(true);
-    //       }
-    //       else
-    //       {
-    //         ROS_ERROR("Failed to generate the first trajectory!!!");
-    //         changeFSMExecState(SEQUENTIAL_START, "FSM");
-    //       }
-    //     }
-    //     else
-    //     {
-    //       ROS_ERROR("No odom or no target! have_odom_=%d, have_target_=%d", have_odom_, have_target_);
-    //     }
-    //   }
+            // publishSwarmTrajs(true);
+          }
+          else
+          {
+            ROS_ERROR("Failed to generate the first trajectory!!!");
+            changeFSMExecState(SEQUENTIAL_START, "FSM");
+          }
+        }
+        else
+        {
+          ROS_ERROR("No odom or no target! have_odom_=%d, have_target_=%d", have_odom_, have_target_);
+        }
+      }
 
-    //   break;
-    // }
+      break;
+    }
 
     case GEN_NEW_TRAJ:
     {
