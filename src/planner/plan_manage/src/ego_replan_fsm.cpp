@@ -54,7 +54,7 @@ namespace ego_planner
     pthread_setname_np(pthread_self(), "ego_waypoint");
     odometry_spinner_->start();
 
-    execFSM_nh_.reset(new ros::NodeHandle(node_.getNamespace(), &execFSM_queue_));
+    execFSM_nh_.reset(new ros::NodeHandle(node_.getNamespace()));
     execFSM_nh_->setCallbackQueue(&execFSM_queue_);
     exec_timer_ = execFSM_nh_->createTimer(ros::Duration(0.01), &EGOReplanFSM::execFSMCallback, this);
     execFSM_spinner_ = std::make_unique<ros::AsyncSpinner>(1, &execFSM_queue_);
@@ -63,7 +63,7 @@ namespace ego_planner
     pthread_setname_np(pthread_self(), "ego_execFSM");
     execFSM_spinner_->start();
 
-    checkCollision_nh_.reset(new ros::NodeHandle(node_.getNamespace(), &checkCollision_queue_));
+    checkCollision_nh_.reset(new ros::NodeHandle(node_.getNamespace()));
     checkCollision_nh_->setCallbackQueue(&checkCollision_queue_);
     safety_timer_ = checkCollision_nh_->createTimer(ros::Duration(0.05), &EGOReplanFSM::checkCollisionCallback, this);
     checkCollision_spinner_ = std::make_unique<ros::AsyncSpinner>(1, &checkCollision_queue_);
