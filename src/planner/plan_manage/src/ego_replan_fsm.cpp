@@ -758,7 +758,7 @@ namespace ego_planner
         if (planFromCurrentTraj()) // Make a chance
         {
           changeFSMExecState(EXEC_TRAJ, "SAFETY");
-          publishSwarmTrajs(false);
+          // publishSwarmTrajs(false);
           // return;
           goto force_return;
         }
