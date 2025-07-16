@@ -62,6 +62,17 @@ namespace ego_planner
     safety_timer_ = checkCollision_nh_->createTimer(ros::Duration(0.05), &EGOReplanFSM::checkCollisionCallback, this);
     checkCollision_spinner_ = std::make_unique<ros::AsyncSpinner>(1, &checkCollision_queue_);
 
+    // if (planner_manager_->pp_.drone_id >= 1)
+    // {
+    //   string sub_topic_name = string("/drone_") + std::to_string(planner_manager_->pp_.drone_id - 1) + string("_planning/swarm_trajs");
+    //   swarm_trajs_sub_ = nh.subscribe(sub_topic_name.c_str(), 10, &EGOReplanFSM::swarmTrajsCallback, this, ros::TransportHints().tcpNoDelay());
+    // }
+    // string pub_topic_name = string("/drone_") + std::to_string(planner_manager_->pp_.drone_id) + string("_planning/swarm_trajs");
+    // swarm_trajs_pub_ = nh.advertise<traj_utils::MultiBsplines>(pub_topic_name.c_str(), 10);
+
+    // broadcast_bspline_pub_ = nh.advertise<traj_utils::Bspline>("planning/broadcast_bspline_from_planner", 10);
+    // broadcast_bspline_sub_ = nh.subscribe("planning/broadcast_bspline_to_planner", 100, &EGOReplanFSM::BroadcastBsplineCallback, this, ros::TransportHints().tcpNoDelay());
+    
     pthread_setname_np(pthread_self(), "ego_waypoint");
     waypoint_spinner_->start();
     pthread_setname_np(pthread_self(), "ego_odometry");
@@ -486,34 +497,34 @@ namespace ego_planner
       break;
     }
 
-    case SEQUENTIAL_START: // for swarm
-    {
-      // cout << "id=" << planner_manager_->pp_.drone_id << " have_recv_pre_agent_=" << have_recv_pre_agent_ << endl;
-      if (planner_manager_->pp_.drone_id <= 0 || (planner_manager_->pp_.drone_id >= 1 && have_recv_pre_agent_))
-      {
-        if (have_odom_ && have_target_ && have_trigger_)
-        {
-          bool success = planFromGlobalTraj(10); // zx-todo
-          if (success)
-          {
-            changeFSMExecState(EXEC_TRAJ, "FSM");
+    // case SEQUENTIAL_START: // for swarm
+    // {
+    //   // cout << "id=" << planner_manager_->pp_.drone_id << " have_recv_pre_agent_=" << have_recv_pre_agent_ << endl;
+    //   if (planner_manager_->pp_.drone_id <= 0 || (planner_manager_->pp_.drone_id >= 1 && have_recv_pre_agent_))
+    //   {
+    //     if (have_odom_ && have_target_ && have_trigger_)
+    //     {
+    //       bool success = planFromGlobalTraj(10); // zx-todo
+    //       if (success)
+    //       {
+    //         changeFSMExecState(EXEC_TRAJ, "FSM");
 
-            publishSwarmTrajs(true);
-          }
-          else
-          {
-            ROS_ERROR("Failed to generate the first trajectory!!!");
-            changeFSMExecState(SEQUENTIAL_START, "FSM");
-          }
-        }
-        else
-        {
-          ROS_ERROR("No odom or no target! have_odom_=%d, have_target_=%d", have_odom_, have_target_);
-        }
-      }
+    //         publishSwarmTrajs(true);
+    //       }
+    //       else
+    //       {
+    //         ROS_ERROR("Failed to generate the first trajectory!!!");
+    //         changeFSMExecState(SEQUENTIAL_START, "FSM");
+    //       }
+    //     }
+    //     else
+    //     {
+    //       ROS_ERROR("No odom or no target! have_odom_=%d, have_target_=%d", have_odom_, have_target_);
+    //     }
+    //   }
 
-      break;
-    }
+    //   break;
+    // }
 
     case GEN_NEW_TRAJ:
     {
@@ -527,7 +538,7 @@ namespace ego_planner
       {
         changeFSMExecState(EXEC_TRAJ, "FSM");
         flag_escape_emergency_ = true;
-        publishSwarmTrajs(false);
+        // publishSwarmTrajs(false);
       }
       else
       {
@@ -542,7 +553,7 @@ namespace ego_planner
       if (planFromCurrentTraj(1))
       {
         changeFSMExecState(EXEC_TRAJ, "FSM");
-        publishSwarmTrajs(false);
+        // publishSwarmTrajs(false);
       }
       else
       {
