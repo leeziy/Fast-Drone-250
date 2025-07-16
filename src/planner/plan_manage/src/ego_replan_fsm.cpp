@@ -49,7 +49,7 @@ namespace ego_planner
 
     odometry_nh_.reset(new ros::NodeHandle(node_.getNamespace()));
     odometry_nh_->setCallbackQueue(&odometry_queue_);
-    odom_sub_ = odometry_nh_->subscribe("odom_world", 1, &EGOReplanFSM::odometryCallback, this);
+    odometry_sub_ = odometry_nh_->subscribe("odom_world", 1, &EGOReplanFSM::odometryCallback, this);
     odometry_spinner_ = std::make_unique<ros::AsyncSpinner>(1, &odometry_queue_);
     pthread_setname_np(pthread_self(), "ego_waypoint");
     odometry_spinner_->start();
