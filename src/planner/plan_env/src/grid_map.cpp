@@ -99,8 +99,8 @@ void GridMap::initMap(ros::NodeHandle &nh)
 
   /* init callback */
   /* ---------- 1. depth + odom 同步回调 ---------- */
-  depthOdom_nh_.reset(new ros::NodeHandle(node_, &depthOdom_queue_));
-
+  depthOdom_nh_.reset(new ros::NodeHandle(node_.getNamespace()));
+  depthOdom_nh_->setCallbackQueue(&depthOdom_queue_);
   depth_sub_.reset(new message_filters::Subscriber<sensor_msgs::Image>(*depthOdom_nh_, "grid_map/depth", 50));
   odom_sub_.reset(new message_filters::Subscriber<nav_msgs::Odometry>(*depthOdom_nh_, "grid_map/odom", 100, ros::TransportHints().tcpNoDelay()));
 
@@ -112,14 +112,16 @@ void GridMap::initMap(ros::NodeHandle &nh)
   depthOdom_spinner_->start();
 
   /* ---------- 2. 占用网格更新定时器 ---------- */
-  updateOccupancy_nh_.reset(new ros::NodeHandle(node_, &updateOccupancy_queue_));
+  updateOccupancy_nh_.reset(new ros::NodeHandle(node_.getNamespace()));
+  updateOccupancy_nh_->setCallbackQueue(&updateOccupancy_queue_);
   occ_timer_ = updateOccupancy_nh_->createTimer(ros::Duration(0.05), &GridMap::updateOccupancyCallback, this);
   updateOccupancy_spinner_ = std::make_unique<ros::AsyncSpinner>(1, &updateOccupancy_queue_);
   pthread_setname_np(pthread_self(), "ego_updateOcc");
   updateOccupancy_spinner_->start();
 
   /* ---------- 3. 可视化定时器 ---------- */
-  vis_nh_.reset(new ros::NodeHandle(node_, &vis_queue_));
+  vis_nh_.reset(new ros::NodeHandle(node_.getNamespace()));
+  vis_nh_->setCallbackQueue(&vis_queue_);
   vis_timer_ = vis_nh_->createTimer(ros::Duration(0.11), &GridMap::visCallback, this);
   vis_spinner_ = std::make_unique<ros::AsyncSpinner>(1, &vis_queue_);
   map_pub_ = vis_nh_->advertise<sensor_msgs::PointCloud2>("grid_map/occupancy", 10);
