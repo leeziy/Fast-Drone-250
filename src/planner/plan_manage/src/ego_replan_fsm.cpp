@@ -189,7 +189,7 @@ namespace ego_planner
       {
         while (exec_state_ != EXEC_TRAJ)
         {
-          ros::spinOnce();
+          // ros::spinOnce();
           ros::Duration(0.001).sleep();
         }
         changeFSMExecState(REPLAN_TRAJ, "TRIG");
