@@ -75,7 +75,7 @@ namespace ego_planner
     
     pthread_setname_np(pthread_self(), "ego_waypoint");
     waypoint_spinner_->start();
-    pthread_setname_np(pthread_self(), "ego_waypoint");
+    pthread_setname_np(pthread_self(), "ego_odometry");
     odometry_spinner_->start();
     pthread_setname_np(pthread_self(), "ego_execFSM");
     execFSM_spinner_->start();
