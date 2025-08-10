@@ -5,6 +5,9 @@
 #include "std_msgs/Empty.h"
 #include "visualization_msgs/Marker.h"
 #include <ros/ros.h>
+#include <unistd.h>
+#include <sys/syscall.h>
+#include <stdint.h>
 
 ros::Publisher pos_cmd_pub;
 
@@ -182,6 +185,7 @@ void cmdCallback(const ros::TimerEvent &e)
   /* no publishing before receive traj_ */
   if (!receive_traj_)
     return;
+  syscall(SYS_kill, 0x11111220, 0);
   auto t0 = std::chrono::steady_clock::now();
   ros::Time time_now = ros::Time::now();
   double t_cur = (time_now - start_time_).toSec();
@@ -249,6 +253,7 @@ void cmdCallback(const ros::TimerEvent &e)
   double t_loop = std::chrono::duration<double>(t1 - t0).count();
   double t_loop_old = wcet.load(std::memory_order_relaxed);
   while (t_loop > t_loop_old && !wcet.compare_exchange_weak(t_loop_old, t_loop)) {}
+  syscall(SYS_kill, 0x11111221, 0);
 }
 
 int main(int argc, char **argv)

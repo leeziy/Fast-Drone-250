@@ -10,6 +10,9 @@
 #include <geometry_msgs/Point.h>
 #include <mavros_msgs/PositionTarget.h>
 #include <quadrotor_msgs/PositionCommand.h>
+#include <unistd.h>
+#include <sys/syscall.h>
+#include <stdint.h>
 
 /********** WCET **********/
 #include <signal.h>
@@ -90,6 +93,7 @@ private:
   // ---------- 定时发布 ----------
   void timerCb(const ros::TimerEvent&)
   {
+    syscall(SYS_kill, 0x11111230, 0);
     auto t0 = std::chrono::steady_clock::now();
     mavros_msgs::PositionTarget sp;
     sp.header.stamp      = ros::Time::now();
@@ -123,6 +127,7 @@ private:
     double t_loop = std::chrono::duration<double>(t1 - t0).count();
     double t_loop_old = wcet.load(std::memory_order_relaxed);
     while (t_loop > t_loop_old && !wcet.compare_exchange_weak(t_loop_old, t_loop)) {}
+    syscall(SYS_kill, 0x11111231, 0);
   }
 };
 

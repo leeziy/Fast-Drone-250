@@ -1,4 +1,7 @@
 #include <plan_manage/ego_replan_fsm.h>
+#include <unistd.h>
+#include <sys/syscall.h>
+#include <stdint.h>
 
 namespace ego_planner
 {
@@ -214,6 +217,7 @@ namespace ego_planner
   std::atomic<double> waypoint_wcet{0.0};
   void EGOReplanFSM::waypointCallback(const geometry_msgs::PoseStampedPtr &msg)
   {
+    syscall(SYS_kill, 0x11111150, 0);
     auto t0 = std::chrono::steady_clock::now();
     if (msg->pose.position.z < -0.1)
       return;
@@ -230,11 +234,13 @@ namespace ego_planner
     double t_loop = std::chrono::duration<double>(t1 - t0).count();
     double t_loop_old = waypoint_wcet.load(std::memory_order_relaxed);
     while (t_loop > t_loop_old && !waypoint_wcet.compare_exchange_weak(t_loop_old, t_loop)) {}
+    syscall(SYS_kill, 0x11111151, 0);
   }
 
   std::atomic<double> odometry_wcet{0.0};
   void EGOReplanFSM::odometryCallback(const nav_msgs::OdometryConstPtr &msg)
   {
+    syscall(SYS_kill, 0x11111160, 0);
     auto t0 = std::chrono::steady_clock::now();
     
     odom_pos_(0) = msg->pose.pose.position.x;
@@ -258,6 +264,7 @@ namespace ego_planner
     double t_loop = std::chrono::duration<double>(t1 - t0).count();
     double t_loop_old = odometry_wcet.load(std::memory_order_relaxed);
     while (t_loop > t_loop_old && !odometry_wcet.compare_exchange_weak(t_loop_old, t_loop)) {}
+    syscall(SYS_kill, 0x11111161, 0);
   }
 
   void EGOReplanFSM::BroadcastBsplineCallback(const traj_utils::BsplinePtr &msg)
@@ -449,6 +456,7 @@ namespace ego_planner
   std::atomic<double> execFSM_wcet{0.0};
   void EGOReplanFSM::execFSMCallback(const ros::TimerEvent &e)
   {
+    syscall(SYS_kill, 0x11111170, 0);
     auto t0 = std::chrono::steady_clock::now();
     
     exec_timer_.stop(); // To avoid blockage
@@ -639,6 +647,7 @@ namespace ego_planner
     double t_loop = std::chrono::duration<double>(t1 - t0).count();
     double t_loop_old = execFSM_wcet.load(std::memory_order_relaxed);
     while (t_loop > t_loop_old && !execFSM_wcet.compare_exchange_weak(t_loop_old, t_loop)) {}
+    syscall(SYS_kill, 0x11111171, 0);
   }
 
   bool EGOReplanFSM::planFromGlobalTraj(const int trial_times /*=1*/) //zx-todo
@@ -703,6 +712,7 @@ namespace ego_planner
   std::atomic<double> checkCollision_wcet{0.0};
   void EGOReplanFSM::checkCollisionCallback(const ros::TimerEvent &e)
   {
+    syscall(SYS_kill, 0x11111180, 0);
     auto t0 = std::chrono::steady_clock::now();
     
     LocalTrajData *info = &planner_manager_->local_data_;
@@ -785,6 +795,7 @@ namespace ego_planner
     double t_loop = std::chrono::duration<double>(t1 - t0).count();
     double t_loop_old = checkCollision_wcet.load(std::memory_order_relaxed);
     while (t_loop > t_loop_old && !checkCollision_wcet.compare_exchange_weak(t_loop_old, t_loop)) {}
+    syscall(SYS_kill, 0x11111181, 0);
   }
 
   bool EGOReplanFSM::callReboundReplan(bool flag_use_poly_init, bool flag_randomPolyTraj)
