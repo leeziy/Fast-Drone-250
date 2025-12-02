@@ -101,7 +101,7 @@ void GridMap::initMap(ros::NodeHandle &nh)
       0.0, 0.0, 0.0, 1.0;
 
   /* init callback */
-  /* ---------- 1. depth + odom Í¬²½»Øµ÷ ---------- */
+  /* ---------- 1. depth + odom åŒæ­¥å›žè°ƒ ---------- */
   depthOdom_nh_.reset(new ros::NodeHandle(node_));
   depthOdom_nh_->setCallbackQueue(&depthOdom_queue_);
   depth_sub_.reset(new message_filters::Subscriber<sensor_msgs::Image>(*depthOdom_nh_, "grid_map/depth", 50));
@@ -112,14 +112,14 @@ void GridMap::initMap(ros::NodeHandle &nh)
 
   depthOdom_spinner_ = std::make_unique<ros::AsyncSpinner>(1, &depthOdom_queue_);
 
-  /* ---------- 2. Õ¼ÓÃÍø¸ñ¸üÐÂ¶¨Ê±Æ÷ ---------- */
+  /* ---------- 2. å ç”¨ç½‘æ ¼æ›´æ–°å®šæ—¶å™¨ ---------- */
   updateOccupancy_nh_.reset(new ros::NodeHandle(node_));
   updateOccupancy_nh_->setCallbackQueue(&updateOccupancy_queue_);
   occ_timer_ = updateOccupancy_nh_->createTimer(ros::Duration(0.05), &GridMap::updateOccupancyCallback, this);
   updateOccupancy_spinner_ = std::make_unique<ros::AsyncSpinner>(1, &updateOccupancy_queue_);
 
 
-  /* ---------- 3. ¿ÉÊÓ»¯¶¨Ê±Æ÷ ---------- */
+  /* ---------- 3. å¯è§†åŒ–å®šæ—¶å™¨ ---------- */
   vis_nh_.reset(new ros::NodeHandle(node_));
   vis_nh_->setCallbackQueue(&vis_queue_);
   vis_timer_ = vis_nh_->createTimer(ros::Duration(0.11), &GridMap::visCallback, this);
