@@ -30,23 +30,6 @@ int traj_id_;
 double last_yaw_, last_yaw_dot_;
 double time_forward_;
 
-/********** WCET **********/
-#include <signal.h>
-#include <stdio.h>
-#include <unistd.h>
-#include <atomic> 
-std::atomic<double> wcet{0.0};
-void SigHandle(int sig)
-{
-    if (sig == SIGUSR1)
-    {
-        wcet.store(0.0);
-        ROS_WARN("Received SIGUSR1: WCET records cleared!");
-        return;
-    }
-}
-/**************************/
-
 void updateTrajectory(const traj_utils::BsplineConstPtr &msg)
 {
   // parse pos traj
@@ -188,7 +171,6 @@ void publishCmd()
   /* no publishing before receive traj_ */
   if (!receive_traj_)
     return;
-  auto t0 = std::chrono::steady_clock::now();
   ros::Time time_now = ros::Time::now();
   double t_cur = (time_now - start_time_).toSec();
 
@@ -251,10 +233,7 @@ void publishCmd()
   last_yaw_ = cmd.yaw;
 
   pos_cmd_pub.publish(cmd);
-  auto t1 = std::chrono::steady_clock::now();
-  double t_loop = std::chrono::duration<double>(t1 - t0).count();
-  double t_loop_old = wcet.load(std::memory_order_relaxed);
-  while (t_loop > t_loop_old && !wcet.compare_exchange_weak(t_loop_old, t_loop)) {}
+
 }
 
 void trajCallback(const std_msgs::Empty::ConstPtr &)
@@ -313,11 +292,7 @@ int main(int argc, char **argv)
   ROS_WARN("[Traj server]: ready.");
 
   pthread_setname_np(pthread_self(), "traj_main");
-  signal(SIGUSR1, SigHandle);
   ros::spin();
-  double worst = wcet.load();
-  // ROS_WARN("=== traj_main WCET: %.0f us ===", worst * 1000000);
-  printf("=== traj_main WCET: %.0f us ===\n", worst * 1000000);
 
   return 0;
 }
