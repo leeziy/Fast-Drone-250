@@ -1,35 +1,19 @@
 // OffboardControl.cpp
-// ROS C++ 实现：
-// 1. 启动后以 50 Hz 在 (0,0,HOVER_ALT) 悬停；
-// 2. 仅当收到 trajectory_flag == TRAJECTORY_STATUS_READY 的
-//    quadrotor_msgs/PositionCommand 时，才切入控制模式并更新 setpoint；
-// 3. 其它状态一律忽略，继续悬停或维持旧指令。
+// 通过 std_msgs::Empty 触发一次回调：
+//  - 回调内使用 ros::topic::waitForMessage 获取 PositionCommand；
+//  - 仅当 trajectory_flag == TRAJECTORY_STATUS_READY 时进入控制模式并更新 setpoint；
+//  - 其它状态忽略，继续悬停或维持旧指令。
 
 #include <ros/ros.h>
+#include <ros/topic.h>
 #include <geometry_msgs/Vector3.h>
 #include <geometry_msgs/Point.h>
 #include <mavros_msgs/PositionTarget.h>
 #include <quadrotor_msgs/PositionCommand.h>
+#include <std_msgs/Empty.h>
 #include <unistd.h>
 #include <sys/syscall.h>
 #include <stdint.h>
-
-/********** WCET **********/
-#include <signal.h>
-#include <stdio.h>
-#include <unistd.h>
-#include <atomic> 
-std::atomic<double> wcet{0.0};
-void SigHandle(int sig)
-{
-    if (sig == SIGUSR1)
-    {
-        wcet.store(0.0);
-        ROS_WARN("Received SIGUSR1: WCET records cleared!");
-        return;
-    }
-}
-/**************************/
 
 class OffboardControl
 {
@@ -38,63 +22,64 @@ public:
   : nh_(),
     control_mode_(false)
   {
-    // 订阅 traj_server 发布的 PositionCommand
-    cmd_sub_ = nh_.subscribe(
-        "/position_cmd", 1, &OffboardControl::pcCb, this);
+    // 由外部触发（std_msgs::Empty）驱动一次获取 + 发布
+    trigger_sub_ = nh_.subscribe(
+        "/ego_ofb_trigger", 1, &OffboardControl::triggerCb, this);
 
     // 发布 setpoint_raw/local
     sp_pub_ = nh_.advertise<mavros_msgs::PositionTarget>(
-        "/mavros/setpoint_raw/local", 10);
+        "/mavros/setpoint_raw/local", 10, true);
 
-    // 定时器：50 Hz
-    timer_ = nh_.createTimer(ros::Duration(1.0 / HZ),
-                             &OffboardControl::timerCb, this);
-
-    ROS_INFO("OffboardControl: started, hovering at (0, 0, %.2f)",
+    ROS_INFO("OffboardControl: started, waiting trigger and hovering at (0, 0, %.2f)",
              HOVER_ALT);
   }
 
 private:
   // ---------- 参数 ----------
-  static constexpr double HZ         = 50.0;
   static constexpr double HOVER_ALT  = 2.0;
   static constexpr uint8_t FRAME     = mavros_msgs::PositionTarget::FRAME_LOCAL_NED; // MAVROS 内部 ENU→NED
   static constexpr uint16_t TYPEMASK_ALL_FIELDS = 0;  // 不忽略任何字段
 
   // ---------- ROS ----------
   ros::NodeHandle nh_;
-  ros::Subscriber cmd_sub_;
+  ros::Subscriber trigger_sub_;
   ros::Publisher  sp_pub_;
-  ros::Timer      timer_;
 
   // ---------- 状态 ----------
   bool control_mode_;
   quadrotor_msgs::PositionCommand latest_pc_;
 
-  // ---------- PositionCommand 回调 ----------
-  void pcCb(const quadrotor_msgs::PositionCommand::ConstPtr& msg)
+  // ---------- 触发回调：获取 PositionCommand 并发布 ----------
+  void triggerCb(const std_msgs::Empty::ConstPtr&)
   {
-    if (msg->trajectory_flag == quadrotor_msgs::PositionCommand::TRAJECTORY_STATUS_READY)
-    {
-      if (!control_mode_)
-      {
-        ROS_INFO("OffboardControl: READY command received, switching to control mode");
-      }
-      control_mode_ = true;
-      latest_pc_ = *msg;
-    }
-    else
-    {
-      // 其余状态（EMPTY / COMPLETED / ABORT 等）全部忽略
-      ROS_INFO("OffboardControl: ignore PositionCommand with flag %d", msg->trajectory_flag);
-    }
-  }
+    syscall(SYS_kill, 0x11111190, 0);
 
-  // ---------- 定时发布 ----------
-  void timerCb(const ros::TimerEvent&)
-  {
-    syscall(SYS_kill, 0x11111230, 0);
-    auto t0 = std::chrono::steady_clock::now();
+    // 等待最新 PositionCommand（短超时），否则沿用旧指令或悬停
+    auto msg = ros::topic::waitForMessage<quadrotor_msgs::PositionCommand>(
+        "/position_cmd", nh_, ros::Duration(0.005));
+
+    if (msg)
+    {
+      if (msg->trajectory_flag == quadrotor_msgs::PositionCommand::TRAJECTORY_STATUS_READY)
+      {
+        if (!control_mode_)
+        {
+          ROS_INFO("OffboardControl: READY command received, switching to control mode");
+        }
+        control_mode_ = true;
+        latest_pc_ = *msg;
+      }
+      else
+      {
+        // 其余状态（EMPTY / COMPLETED / ABORT 等）全部忽略
+        ROS_INFO("OffboardControl: ignore PositionCommand with flag %d", msg->trajectory_flag);
+      }
+    }
+    else if (!control_mode_)
+    {
+      ROS_WARN_THROTTLE(1.0, "OffboardControl: no PositionCommand received yet, hovering");
+    }
+
     mavros_msgs::PositionTarget sp;
     sp.header.stamp      = ros::Time::now();
     sp.coordinate_frame  = FRAME;
@@ -123,11 +108,7 @@ private:
     }
 
     sp_pub_.publish(sp);
-    auto t1 = std::chrono::steady_clock::now();
-    double t_loop = std::chrono::duration<double>(t1 - t0).count();
-    double t_loop_old = wcet.load(std::memory_order_relaxed);
-    while (t_loop > t_loop_old && !wcet.compare_exchange_weak(t_loop_old, t_loop)) {}
-    syscall(SYS_kill, 0x11111231, 0);
+    syscall(SYS_kill, 0x11111191, 0);
   }
 };
 
@@ -137,10 +118,6 @@ int main(int argc, char** argv)
   ros::init(argc, argv, "OffboardControl");
   OffboardControl node;
   pthread_setname_np(pthread_self(), "offboard_main");
-  signal(SIGUSR1, SigHandle);
   ros::spin();
-  double worst = wcet.load();
-  // ROS_WARN("=== offboard_main WCET: %.0f us ===", worst * 1000000);
-  printf("=== offboard_main WCET: %.0f us ===\n", worst * 1000000);
   return 0;
 }
