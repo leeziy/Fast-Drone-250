@@ -104,6 +104,8 @@ namespace ego_planner
     ros::Subscriber waypoint_sub_, odometry_sub_, swarm_trajs_sub_, broadcast_bspline_sub_, trigger_sub_;
     ros::Publisher replan_pub_, new_pub_, bspline_pub_, data_disp_pub_, swarm_trajs_pub_, broadcast_bspline_pub_;
 
+    ros::Subscriber ego_odom_trigger_, ego_execFSM_trigger_, ego_checkColl_trigger_;
+
     /* helper functions */
     bool callReboundReplan(bool flag_use_poly_init, bool flag_randomPolyTraj); // front-end and back-end method
     bool callEmergencyStop(Eigen::Vector3d stop_pos);                          // front-end and back-end method
@@ -120,11 +122,14 @@ namespace ego_planner
     void getLocalTarget();
 
     /* ROS functions */
-    void execFSMCallback(const ros::TimerEvent &e);
-    void checkCollisionCallback(const ros::TimerEvent &e);
+    // void execFSMCallback(const ros::TimerEvent &e);
+    void execFSMCallback(const std_msgs::Empty::ConstPtr&);
+    // void checkCollisionCallback(const ros::TimerEvent &e);
+    void checkCollisionCallback(const std_msgs::Empty::ConstPtr&);
     void waypointCallback(const geometry_msgs::PoseStampedPtr &msg);
     void triggerCallback(const geometry_msgs::PoseStampedPtr &msg);
-    void odometryCallback(const nav_msgs::OdometryConstPtr &msg);
+    // void odometryCallback(const nav_msgs::OdometryConstPtr &msg);
+    void odometryCallback(const std_msgs::Empty::ConstPtr&);
     void swarmTrajsCallback(const traj_utils::MultiBsplinesPtr &msg);
     void BroadcastBsplineCallback(const traj_utils::BsplinePtr &msg);
 

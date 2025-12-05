@@ -104,18 +104,18 @@ void GridMap::initMap(ros::NodeHandle &nh)
   /* ---------- 1. depth + odom 同步回调 ---------- */
   depthOdom_nh_.reset(new ros::NodeHandle(node_));
   depthOdom_nh_->setCallbackQueue(&depthOdom_queue_);
-  depth_sub_.reset(new message_filters::Subscriber<sensor_msgs::Image>(*depthOdom_nh_, "grid_map/depth", 50));
-  odom_sub_.reset(new message_filters::Subscriber<nav_msgs::Odometry>(*depthOdom_nh_, "grid_map/odom", 100, ros::TransportHints().tcpNoDelay()));
-
-  sync_image_odom_.reset(new message_filters::Synchronizer<SyncPolicyImageOdom>(SyncPolicyImageOdom(100), *depth_sub_, *odom_sub_));
-  sync_image_odom_->registerCallback(boost::bind(&GridMap::depthOdomCallback, this, _1, _2));
-
+  // depth_sub_.reset(new message_filters::Subscriber<sensor_msgs::Image>(*depthOdom_nh_, "grid_map/depth", 50));
+  // odom_sub_.reset(new message_filters::Subscriber<nav_msgs::Odometry>(*depthOdom_nh_, "grid_map/odom", 100, ros::TransportHints().tcpNoDelay()));
+  // sync_image_odom_.reset(new message_filters::Synchronizer<SyncPolicyImageOdom>(SyncPolicyImageOdom(100), *depth_sub_, *odom_sub_));
+  // sync_image_odom_->registerCallback(boost::bind(&GridMap::depthOdomCallback, this, _1, _2));
+  depthOdom_trigger_ = depthOdom_nh_->subscribe("/ego_depthOdom_trigger", 1, &GridMap::depthOdomCallback, this);
   depthOdom_spinner_ = std::make_unique<ros::AsyncSpinner>(1, &depthOdom_queue_);
 
   /* ---------- 2. 占用网格更新定时器 ---------- */
   updateOccupancy_nh_.reset(new ros::NodeHandle(node_));
   updateOccupancy_nh_->setCallbackQueue(&updateOccupancy_queue_);
-  occ_timer_ = updateOccupancy_nh_->createTimer(ros::Duration(0.05), &GridMap::updateOccupancyCallback, this);
+  // occ_timer_ = updateOccupancy_nh_->createTimer(ros::Duration(0.05), &GridMap::updateOccupancyCallback, this);
+  ego_updateOcc_trigger_ = updateOccupancy_nh_->subscribe("/ego_updateOcc_trigger", 1, &GridMap::updateOccupancyCallback, this);
   updateOccupancy_spinner_ = std::make_unique<ros::AsyncSpinner>(1, &updateOccupancy_queue_);
 
 
@@ -124,8 +124,8 @@ void GridMap::initMap(ros::NodeHandle &nh)
   vis_nh_->setCallbackQueue(&vis_queue_);
   vis_timer_ = vis_nh_->createTimer(ros::Duration(0.11), &GridMap::visCallback, this);
   vis_spinner_ = std::make_unique<ros::AsyncSpinner>(1, &vis_queue_);
-  map_pub_ = vis_nh_->advertise<sensor_msgs::PointCloud2>("grid_map/occupancy", 10);
-  map_inf_pub_ = vis_nh_->advertise<sensor_msgs::PointCloud2>("grid_map/occupancy_inflate", 10);
+  map_pub_ = vis_nh_->advertise<sensor_msgs::PointCloud2>("grid_map/occupancy", 10, true);
+  map_inf_pub_ = vis_nh_->advertise<sensor_msgs::PointCloud2>("grid_map/occupancy_inflate", 10, true);
 
   md_.occ_need_update_ = false;
   md_.local_updated_ = false;
@@ -651,7 +651,7 @@ void GridMap::clearAndInflateLocalMap()
 std::atomic<double> vis_wcet{0.0};
 void GridMap::visCallback(const ros::TimerEvent & /*event*/)
 {
-  syscall(SYS_kill, 0x11111190, 0);
+  // syscall(SYS_kill, 0x11111190, 0);
   auto t0 = std::chrono::steady_clock::now();
 
   publishMapInflate(true);
@@ -661,13 +661,14 @@ void GridMap::visCallback(const ros::TimerEvent & /*event*/)
   double t_loop = std::chrono::duration<double>(t1 - t0).count();
   double t_loop_old = vis_wcet.load(std::memory_order_relaxed);
   while (t_loop > t_loop_old && !vis_wcet.compare_exchange_weak(t_loop_old, t_loop)) {}
-  syscall(SYS_kill, 0x11111191, 0);
+  // syscall(SYS_kill, 0x11111191, 0);
 }
 
 std::atomic<double> updateOccupancy_wcet{0.0};
-void GridMap::updateOccupancyCallback(const ros::TimerEvent & /*event*/)
+// void GridMap::updateOccupancyCallback(const ros::TimerEvent & /*event*/)
+void GridMap::updateOccupancyCallback(const std_msgs::Empty::ConstPtr&)
 {
-  syscall(SYS_kill, 0x11111200, 0);
+  syscall(SYS_kill, 0x11111140, 0);
   auto t0 = std::chrono::steady_clock::now();
   
   if (md_.last_occ_update_time_.toSec() < 1.0 ) md_.last_occ_update_time_ = ros::Time::now();
@@ -717,7 +718,7 @@ void GridMap::updateOccupancyCallback(const ros::TimerEvent & /*event*/)
   double t_loop = std::chrono::duration<double>(t1 - t0).count();
   double t_loop_old = updateOccupancy_wcet.load(std::memory_order_relaxed);
   while (t_loop > t_loop_old && !updateOccupancy_wcet.compare_exchange_weak(t_loop_old, t_loop)) {}
-  syscall(SYS_kill, 0x11111201, 0);
+  syscall(SYS_kill, 0x11111141, 0);
 }
 
 void GridMap::depthPoseCallback(const sensor_msgs::ImageConstPtr &img,
@@ -997,10 +998,13 @@ void GridMap::extrinsicCallback(const nav_msgs::OdometryConstPtr &odom)
 }
 
 std::atomic<double> depthOdom_wcet{0.0};
-void GridMap::depthOdomCallback(const sensor_msgs::ImageConstPtr &img,
-                                const nav_msgs::OdometryConstPtr &odom)
+// void GridMap::depthOdomCallback(const sensor_msgs::ImageConstPtr &img,
+//                                 const nav_msgs::OdometryConstPtr &odom)
+ void GridMap::depthOdomCallback(const std_msgs::Empty::ConstPtr&)                           
 {
-  syscall(SYS_kill, 0x11111210, 0);
+  auto img = ros::topic::waitForMessage<sensor_msgs::Image>("grid_map/depth", *depthOdom_nh_, ros::Duration(0.005));
+  auto odom = ros::topic::waitForMessage<nav_msgs::Odometry>("grid_map/odom", *depthOdom_nh_, ros::Duration(0.005));
+  syscall(SYS_kill, 0x11111130, 0);
   auto t0 = std::chrono::steady_clock::now();
   /* get pose */
   Eigen::Quaterniond body_q = Eigen::Quaterniond(odom->pose.pose.orientation.w,
@@ -1037,5 +1041,5 @@ void GridMap::depthOdomCallback(const sensor_msgs::ImageConstPtr &img,
   double t_loop = std::chrono::duration<double>(t1 - t0).count();
   double t_loop_old = depthOdom_wcet.load(std::memory_order_relaxed);
   while (t_loop > t_loop_old && !depthOdom_wcet.compare_exchange_weak(t_loop_old, t_loop)) {}
-  syscall(SYS_kill, 0x11111211, 0);
+  syscall(SYS_kill, 0x11111131, 0);
 }

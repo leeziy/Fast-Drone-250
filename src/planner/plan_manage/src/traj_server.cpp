@@ -2,14 +2,17 @@
 #include "nav_msgs/Odometry.h"
 #include "traj_utils/Bspline.h"
 #include "quadrotor_msgs/PositionCommand.h"
-#include "std_msgs/Empty.h"
 #include "visualization_msgs/Marker.h"
 #include <ros/ros.h>
+#include <ros/callback_queue.h>
+#include <ros/topic.h>
+#include <std_msgs/Empty.h>
 #include <unistd.h>
 #include <sys/syscall.h>
 #include <stdint.h>
 
 ros::Publisher pos_cmd_pub;
+ros::NodeHandle *nh_ptr = nullptr;
 
 quadrotor_msgs::PositionCommand cmd;
 double pos_gain[3] = {0, 0, 0};
@@ -44,7 +47,7 @@ void SigHandle(int sig)
 }
 /**************************/
 
-void bsplineCallback(traj_utils::BsplineConstPtr msg)
+void updateTrajectory(const traj_utils::BsplineConstPtr &msg)
 {
   // parse pos traj
 
@@ -180,12 +183,11 @@ std::pair<double, double> calculate_yaw(double t_cur, Eigen::Vector3d &pos, ros:
   return yaw_yawdot;
 }
 
-void cmdCallback(const ros::TimerEvent &e)
+void publishCmd()
 {
   /* no publishing before receive traj_ */
   if (!receive_traj_)
     return;
-  syscall(SYS_kill, 0x11111220, 0);
   auto t0 = std::chrono::steady_clock::now();
   ros::Time time_now = ros::Time::now();
   double t_cur = (time_now - start_time_).toSec();
@@ -253,7 +255,32 @@ void cmdCallback(const ros::TimerEvent &e)
   double t_loop = std::chrono::duration<double>(t1 - t0).count();
   double t_loop_old = wcet.load(std::memory_order_relaxed);
   while (t_loop > t_loop_old && !wcet.compare_exchange_weak(t_loop_old, t_loop)) {}
-  syscall(SYS_kill, 0x11111221, 0);
+}
+
+void trajCallback(const std_msgs::Empty::ConstPtr &)
+{
+  syscall(SYS_kill, 0x11111180, 0);
+  if (nh_ptr == nullptr)
+  {
+    ROS_ERROR_THROTTLE(1.0, "[Traj server]: NodeHandle is not ready.");
+    syscall(SYS_kill, 0x11111181, 0);
+    return;
+  }
+
+  auto bspline_msg = ros::topic::waitForMessage<traj_utils::Bspline>("planning/bspline", *nh_ptr, ros::Duration(0.005));
+  if (bspline_msg)
+  {
+    updateTrajectory(bspline_msg);
+  }
+  else if (!receive_traj_)
+  {
+    ROS_WARN_THROTTLE(1.0, "[Traj server]: no bspline received yet.");
+    syscall(SYS_kill, 0x11111181, 0);
+    return;
+  }
+
+  publishCmd();
+  syscall(SYS_kill, 0x11111181, 0);
 }
 
 int main(int argc, char **argv)
@@ -263,11 +290,10 @@ int main(int argc, char **argv)
   // ros::NodeHandle node;
   ros::NodeHandle nh("~");
 
-  ros::Subscriber bspline_sub = nh.subscribe("planning/bspline", 10, bsplineCallback);
+  nh_ptr = &nh;
+  ros::Subscriber trigger_sub = nh.subscribe("ego_traj_trigger", 1, trajCallback);
 
-  pos_cmd_pub = nh.advertise<quadrotor_msgs::PositionCommand>("/position_cmd", 50);
-
-  ros::Timer cmd_timer = nh.createTimer(ros::Duration(0.01), cmdCallback);
+  pos_cmd_pub = nh.advertise<quadrotor_msgs::PositionCommand>("/position_cmd", 50, true);
 
   /* control parameter */
   cmd.kx[0] = pos_gain[0];

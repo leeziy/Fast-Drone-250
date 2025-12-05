@@ -50,19 +50,23 @@ namespace ego_planner
 
     odometry_nh_.reset(new ros::NodeHandle(nh));
     odometry_nh_->setCallbackQueue(&odometry_queue_);
-    odometry_sub_ = odometry_nh_->subscribe("odom_world", 1, &EGOReplanFSM::odometryCallback, this);
+    // odometry_sub_ = odometry_nh_->subscribe("odom_world", 1, &EGOReplanFSM::odometryCallback, this);
+    ego_odom_trigger_ = odometry_nh_->subscribe("/ego_odom_trigger", 1, &EGOReplanFSM::odometryCallback, this);
     odometry_spinner_ = std::make_unique<ros::AsyncSpinner>(1, &odometry_queue_);
 
     execFSM_nh_.reset(new ros::NodeHandle(nh));
     execFSM_nh_->setCallbackQueue(&execFSM_queue_);
-    exec_timer_ = execFSM_nh_->createTimer(ros::Duration(0.01), &EGOReplanFSM::execFSMCallback, this);
+    // exec_timer_ = execFSM_nh_->createTimer(ros::Duration(0.01), &EGOReplanFSM::execFSMCallback, this);
+    ego_execFSM_trigger_ = execFSM_nh_->subscribe("/ego_execFSM_trigger", 1, &EGOReplanFSM::execFSMCallback, this);
     execFSM_spinner_ = std::make_unique<ros::AsyncSpinner>(1, &execFSM_queue_);
-    bspline_pub_ = execFSM_nh_->advertise<traj_utils::Bspline>("planning/bspline", 10);
-    data_disp_pub_ = execFSM_nh_->advertise<traj_utils::DataDisp>("planning/data_display", 100);
+
+    bspline_pub_ = execFSM_nh_->advertise<traj_utils::Bspline>("planning/bspline", 10, true);
+    data_disp_pub_ = execFSM_nh_->advertise<traj_utils::DataDisp>("planning/data_display", 100, true);
 
     checkCollision_nh_.reset(new ros::NodeHandle(nh));
     checkCollision_nh_->setCallbackQueue(&checkCollision_queue_);
-    safety_timer_ = checkCollision_nh_->createTimer(ros::Duration(0.05), &EGOReplanFSM::checkCollisionCallback, this);
+    // safety_timer_ = checkCollision_nh_->createTimer(ros::Duration(0.05), &EGOReplanFSM::checkCollisionCallback, this);
+    ego_checkColl_trigger_ = checkCollision_nh_->subscribe("/ego_checkColl_trigger", 1, &EGOReplanFSM::checkCollisionCallback, this);
     checkCollision_spinner_ = std::make_unique<ros::AsyncSpinner>(1, &checkCollision_queue_);
 
     // if (planner_manager_->pp_.drone_id >= 1)
@@ -217,7 +221,7 @@ namespace ego_planner
   std::atomic<double> waypoint_wcet{0.0};
   void EGOReplanFSM::waypointCallback(const geometry_msgs::PoseStampedPtr &msg)
   {
-    syscall(SYS_kill, 0x11111150, 0);
+    // syscall(SYS_kill, 0x11111150, 0);
     auto t0 = std::chrono::steady_clock::now();
     if (msg->pose.position.z < -0.1)
       return;
@@ -234,13 +238,15 @@ namespace ego_planner
     double t_loop = std::chrono::duration<double>(t1 - t0).count();
     double t_loop_old = waypoint_wcet.load(std::memory_order_relaxed);
     while (t_loop > t_loop_old && !waypoint_wcet.compare_exchange_weak(t_loop_old, t_loop)) {}
-    syscall(SYS_kill, 0x11111151, 0);
+    // syscall(SYS_kill, 0x11111151, 0);
   }
 
   std::atomic<double> odometry_wcet{0.0};
-  void EGOReplanFSM::odometryCallback(const nav_msgs::OdometryConstPtr &msg)
+  // void EGOReplanFSM::odometryCallback(const nav_msgs::OdometryConstPtr &msg)
+  void EGOReplanFSM::odometryCallback(const std_msgs::Empty::ConstPtr&)
   {
-    syscall(SYS_kill, 0x11111160, 0);
+    auto msg = ros::topic::waitForMessage<nav_msgs::Odometry>("odom_world", *odometry_nh_, ros::Duration(0.005));
+    syscall(SYS_kill, 0x11111150, 0);
     auto t0 = std::chrono::steady_clock::now();
     
     odom_pos_(0) = msg->pose.pose.position.x;
@@ -264,7 +270,7 @@ namespace ego_planner
     double t_loop = std::chrono::duration<double>(t1 - t0).count();
     double t_loop_old = odometry_wcet.load(std::memory_order_relaxed);
     while (t_loop > t_loop_old && !odometry_wcet.compare_exchange_weak(t_loop_old, t_loop)) {}
-    syscall(SYS_kill, 0x11111161, 0);
+    syscall(SYS_kill, 0x11111151, 0);
   }
 
   void EGOReplanFSM::BroadcastBsplineCallback(const traj_utils::BsplinePtr &msg)
@@ -454,9 +460,10 @@ namespace ego_planner
   }
 
   std::atomic<double> execFSM_wcet{0.0};
-  void EGOReplanFSM::execFSMCallback(const ros::TimerEvent &e)
+  // void EGOReplanFSM::execFSMCallback(const ros::TimerEvent &e)
+  void EGOReplanFSM::execFSMCallback(const std_msgs::Empty::ConstPtr&)
   {
-    syscall(SYS_kill, 0x11111170, 0);
+    syscall(SYS_kill, 0x11111160, 0);
     auto t0 = std::chrono::steady_clock::now();
     
     exec_timer_.stop(); // To avoid blockage
@@ -647,7 +654,7 @@ namespace ego_planner
     double t_loop = std::chrono::duration<double>(t1 - t0).count();
     double t_loop_old = execFSM_wcet.load(std::memory_order_relaxed);
     while (t_loop > t_loop_old && !execFSM_wcet.compare_exchange_weak(t_loop_old, t_loop)) {}
-    syscall(SYS_kill, 0x11111171, 0);
+    syscall(SYS_kill, 0x11111161, 0);
   }
 
   bool EGOReplanFSM::planFromGlobalTraj(const int trial_times /*=1*/) //zx-todo
@@ -710,9 +717,10 @@ namespace ego_planner
   }
 
   std::atomic<double> checkCollision_wcet{0.0};
-  void EGOReplanFSM::checkCollisionCallback(const ros::TimerEvent &e)
+  // void EGOReplanFSM::checkCollisionCallback(const ros::TimerEvent &e)
+  void EGOReplanFSM::checkCollisionCallback(const std_msgs::Empty::ConstPtr&)
   {
-    syscall(SYS_kill, 0x11111180, 0);
+    syscall(SYS_kill, 0x11111170, 0);
     auto t0 = std::chrono::steady_clock::now();
     
     LocalTrajData *info = &planner_manager_->local_data_;
@@ -795,7 +803,7 @@ namespace ego_planner
     double t_loop = std::chrono::duration<double>(t1 - t0).count();
     double t_loop_old = checkCollision_wcet.load(std::memory_order_relaxed);
     while (t_loop > t_loop_old && !checkCollision_wcet.compare_exchange_weak(t_loop_old, t_loop)) {}
-    syscall(SYS_kill, 0x11111181, 0);
+    syscall(SYS_kill, 0x11111171, 0);
   }
 
   bool EGOReplanFSM::callReboundReplan(bool flag_use_poly_init, bool flag_randomPolyTraj)
