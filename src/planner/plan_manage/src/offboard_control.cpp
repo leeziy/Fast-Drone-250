@@ -117,7 +117,7 @@ int main(int argc, char** argv)
   pthread_setname_np(pthread_self(), "offboard_ros");
   ros::init(argc, argv, "OffboardControl");
   OffboardControl node;
-  pthread_setname_np(pthread_self(), "offboard_main");
+  pthread_setname_np(pthread_self(), "ego_offboard");
   ros::spin();
   return 0;
 }

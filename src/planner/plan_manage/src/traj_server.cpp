@@ -291,7 +291,7 @@ int main(int argc, char **argv)
 
   ROS_WARN("[Traj server]: ready.");
 
-  pthread_setname_np(pthread_self(), "traj_main");
+  pthread_setname_np(pthread_self(), "ego_traj");
   ros::spin();
 
   return 0;
