@@ -50,9 +50,17 @@ int main(int argc, char **argv)
   rebo_replan.init(nh);
 
   signal(SIGUSR1, SigHandle);
-  pthread_setname_np(pthread_self(), "ego_main");
+
+  pthread_setname_np(pthread_self(), "ego_ros");
+
+  ros::AsyncSpinner Overall_spinner(2); 
+  Overall_spinner.start();
+
   ros::waitForShutdown();
+
   ROS_INFO("Stopping EgoPlanner...");
+
+  Overall_spinner.stop();
   
   double waypoint_worst = waypoint_wcet.load();
   printf("=== waypoint WCET: %.0f us ===\n", waypoint_worst * 1000000);

@@ -43,16 +43,13 @@ namespace ego_planner
 
     /* callback */
 
-    waypoint_nh_.reset(new ros::NodeHandle(nh));
-    waypoint_nh_->setCallbackQueue(&waypoint_queue_);
-    waypoint_sub_ = waypoint_nh_->subscribe("/move_base_simple/goal", 1, &EGOReplanFSM::waypointCallback, this);
-    waypoint_spinner_ = std::make_unique<ros::AsyncSpinner>(1, &waypoint_queue_);
+    waypoint_sub_ = nh.subscribe("/move_base_simple/goal", 1, &EGOReplanFSM::waypointCallback, this);
 
-    odometry_nh_.reset(new ros::NodeHandle(nh));
-    odometry_nh_->setCallbackQueue(&odometry_queue_);
+    ego_odometry_nh_.reset(new ros::NodeHandle(nh));
+    ego_odometry_nh_->setCallbackQueue(&ego_odometry_queue_);
     // odometry_sub_ = odometry_nh_->subscribe("odom_world", 1, &EGOReplanFSM::odometryCallback, this);
-    ego_odom_trigger_ = odometry_nh_->subscribe("/ego_odom_trigger", 1, &EGOReplanFSM::odometryCallback, this);
-    odometry_spinner_ = std::make_unique<ros::AsyncSpinner>(1, &odometry_queue_);
+    ego_odom_trigger_ = ego_odometry_nh_->subscribe("/ego_odom_trigger", 1, &EGOReplanFSM::ego_odometryCallback, this);
+    ego_odometry_spinner_ = std::make_unique<ros::AsyncSpinner>(1, &ego_odometry_queue_);
 
     execFSM_nh_.reset(new ros::NodeHandle(nh));
     execFSM_nh_->setCallbackQueue(&execFSM_queue_);
@@ -80,10 +77,8 @@ namespace ego_planner
     // broadcast_bspline_pub_ = nh.advertise<traj_utils::Bspline>("planning/broadcast_bspline_from_planner", 10);
     // broadcast_bspline_sub_ = nh.subscribe("planning/broadcast_bspline_to_planner", 100, &EGOReplanFSM::BroadcastBsplineCallback, this, ros::TransportHints().tcpNoDelay());
     
-    pthread_setname_np(pthread_self(), "ego_waypoint");
-    waypoint_spinner_->start();
     pthread_setname_np(pthread_self(), "ego_odometry");
-    odometry_spinner_->start();
+    ego_odometry_spinner_->start();
     pthread_setname_np(pthread_self(), "ego_execFSM");
     execFSM_spinner_->start();
     pthread_setname_np(pthread_self(), "ego_checkColl");
@@ -93,8 +88,7 @@ namespace ego_planner
 
   void EGOReplanFSM::shutdown()
   {
-    waypoint_spinner_->stop();
-    odometry_spinner_->stop();
+    ego_odometry_spinner_->stop();
     execFSM_spinner_->stop();
     checkCollision_spinner_->stop();
   }
@@ -242,10 +236,18 @@ namespace ego_planner
   }
 
   std::atomic<double> odometry_wcet{0.0};
-  // void EGOReplanFSM::odometryCallback(const nav_msgs::OdometryConstPtr &msg)
-  void EGOReplanFSM::odometryCallback(const std_msgs::Empty::ConstPtr&)
+  void EGOReplanFSM::odometryCallback(const nav_msgs::OdometryConstPtr &msg)
   {
-    auto msg = ros::topic::waitForMessage<nav_msgs::Odometry>("odom_world", *odometry_nh_, ros::Duration(0.005));
+    odom_last = msg;
+  }
+  void EGOReplanFSM::ego_odometryCallback(const std_msgs::Empty::ConstPtr&)
+  {
+    if(!odom_last)
+    {
+      ROS_WARN("Odom empty.");
+      return;
+    }
+    nav_msgs::OdometryConstPtr msg = odom_last;
     syscall(SYS_kill, 0x11111150, 0);
     auto t0 = std::chrono::steady_clock::now();
     

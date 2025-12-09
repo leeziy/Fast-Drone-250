@@ -84,13 +84,9 @@ namespace ego_planner
     /* ROS utils */
     ros::NodeHandle node_;
 
-    ros::CallbackQueue waypoint_queue_;
-    std::shared_ptr<ros::NodeHandle> waypoint_nh_;
-    std::unique_ptr<ros::AsyncSpinner> waypoint_spinner_;
-
-    ros::CallbackQueue odometry_queue_;
-    std::shared_ptr<ros::NodeHandle> odometry_nh_;
-    std::unique_ptr<ros::AsyncSpinner> odometry_spinner_;
+    ros::CallbackQueue ego_odometry_queue_;
+    std::shared_ptr<ros::NodeHandle> ego_odometry_nh_;
+    std::unique_ptr<ros::AsyncSpinner> ego_odometry_spinner_;
 
     ros::CallbackQueue execFSM_queue_;
     std::shared_ptr<ros::NodeHandle> execFSM_nh_;
@@ -105,6 +101,8 @@ namespace ego_planner
     ros::Publisher replan_pub_, new_pub_, bspline_pub_, data_disp_pub_, swarm_trajs_pub_, broadcast_bspline_pub_;
 
     ros::Subscriber ego_odom_trigger_, ego_execFSM_trigger_, ego_checkColl_trigger_;
+
+    nav_msgs::OdometryConstPtr odom_last;
 
     /* helper functions */
     bool callReboundReplan(bool flag_use_poly_init, bool flag_randomPolyTraj); // front-end and back-end method
@@ -128,8 +126,8 @@ namespace ego_planner
     void checkCollisionCallback(const std_msgs::Empty::ConstPtr&);
     void waypointCallback(const geometry_msgs::PoseStampedPtr &msg);
     void triggerCallback(const geometry_msgs::PoseStampedPtr &msg);
-    // void odometryCallback(const nav_msgs::OdometryConstPtr &msg);
-    void odometryCallback(const std_msgs::Empty::ConstPtr&);
+    void odometryCallback(const nav_msgs::OdometryConstPtr &msg);
+    void ego_odometryCallback(const std_msgs::Empty::ConstPtr&);
     void swarmTrajsCallback(const traj_utils::MultiBsplinesPtr &msg);
     void BroadcastBsplineCallback(const traj_utils::BsplinePtr &msg);
 
