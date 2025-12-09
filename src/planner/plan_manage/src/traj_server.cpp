@@ -236,7 +236,6 @@ void publishCmd()
 }
 
 traj_utils::BsplineConstPtr latest_bspline_msg_;
-bool has_new_bspline_msg_ = false;
 void bsplineCallback(const traj_utils::BsplineConstPtr &msg)
 {
   latest_bspline_msg_ = msg;

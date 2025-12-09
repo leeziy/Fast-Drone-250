@@ -203,8 +203,10 @@ private:
   void depthPoseCallback(const sensor_msgs::ImageConstPtr& img,
                          const geometry_msgs::PoseStampedConstPtr& pose);
   void extrinsicCallback(const nav_msgs::OdometryConstPtr& odom);
-  // void depthOdomCallback(const sensor_msgs::ImageConstPtr& img, const nav_msgs::OdometryConstPtr& odom);
-  void depthOdomCallback(const std_msgs::Empty::ConstPtr&);
+  
+  void depthOdomCallback(const sensor_msgs::ImageConstPtr& img, const nav_msgs::OdometryConstPtr& odom);
+  void ego_depthOdomCallback(const std_msgs::Empty::ConstPtr&);
+
   void cloudCallback(const sensor_msgs::PointCloud2ConstPtr& img);
   void odomCallback(const nav_msgs::OdometryConstPtr& odom);
 
@@ -243,16 +245,19 @@ private:
   std::shared_ptr<ros::NodeHandle> updateOccupancy_nh_;
   std::unique_ptr<ros::AsyncSpinner> updateOccupancy_spinner_; 
 
-  ros::CallbackQueue depthOdom_queue_;
-  std::shared_ptr<ros::NodeHandle> depthOdom_nh_;
-  std::unique_ptr<ros::AsyncSpinner> depthOdom_spinner_; 
+  ros::CallbackQueue ego_depthOdom_queue_;
+  std::shared_ptr<ros::NodeHandle> ego_depthOdom_nh_;
+  std::unique_ptr<ros::AsyncSpinner> ego_depthOdom_spinner_; 
   
-  // shared_ptr<message_filters::Subscriber<sensor_msgs::Image>> depth_sub_;
-  // shared_ptr<message_filters::Subscriber<geometry_msgs::PoseStamped>> pose_sub_;
-  // shared_ptr<message_filters::Subscriber<nav_msgs::Odometry>> odom_sub_;
-  // SynchronizerImagePose sync_image_pose_;
-  // SynchronizerImageOdom sync_image_odom_;
-  ros::Subscriber depth_sub_, odom_sub_, depthOdom_trigger_;
+  shared_ptr<message_filters::Subscriber<sensor_msgs::Image>> depth_sub_;
+  shared_ptr<message_filters::Subscriber<geometry_msgs::PoseStamped>> pose_sub_;
+  shared_ptr<message_filters::Subscriber<nav_msgs::Odometry>> odom_sub_;
+  SynchronizerImagePose sync_image_pose_;
+  SynchronizerImageOdom sync_image_odom_;
+  nav_msgs::OdometryConstPtr sync_odom_latest;
+  sensor_msgs::ImageConstPtr sync_depth_latest;
+  ros::Subscriber ego_depthOdom_trigger_;
+
   ros::Subscriber ego_updateOcc_trigger_;
 
   ros::Subscriber indep_cloud_sub_, indep_odom_sub_, extrinsic_sub_;

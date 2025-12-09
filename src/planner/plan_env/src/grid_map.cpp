@@ -102,14 +102,15 @@ void GridMap::initMap(ros::NodeHandle &nh)
 
   /* init callback */
   /* ---------- 1. depth + odom 同步回调 ---------- */
-  depthOdom_nh_.reset(new ros::NodeHandle(node_));
-  depthOdom_nh_->setCallbackQueue(&depthOdom_queue_);
-  // depth_sub_.reset(new message_filters::Subscriber<sensor_msgs::Image>(*depthOdom_nh_, "grid_map/depth", 50));
-  // odom_sub_.reset(new message_filters::Subscriber<nav_msgs::Odometry>(*depthOdom_nh_, "grid_map/odom", 100, ros::TransportHints().tcpNoDelay()));
-  // sync_image_odom_.reset(new message_filters::Synchronizer<SyncPolicyImageOdom>(SyncPolicyImageOdom(100), *depth_sub_, *odom_sub_));
-  // sync_image_odom_->registerCallback(boost::bind(&GridMap::depthOdomCallback, this, _1, _2));
-  depthOdom_trigger_ = depthOdom_nh_->subscribe("/ego_depthOdom_trigger", 1, &GridMap::depthOdomCallback, this);
-  depthOdom_spinner_ = std::make_unique<ros::AsyncSpinner>(1, &depthOdom_queue_);
+  depth_sub_.reset(new message_filters::Subscriber<sensor_msgs::Image>(node_, "grid_map/depth", 50));
+  odom_sub_.reset(new message_filters::Subscriber<nav_msgs::Odometry>(node_, "grid_map/odom", 100, ros::TransportHints().tcpNoDelay()));
+  sync_image_odom_.reset(new message_filters::Synchronizer<SyncPolicyImageOdom>(SyncPolicyImageOdom(100), *depth_sub_, *odom_sub_));
+  sync_image_odom_->registerCallback(boost::bind(&GridMap::depthOdomCallback, this, _1, _2));
+
+  ego_depthOdom_trigger_ = ego_depthOdom_nh_->subscribe("/ego_depthOdom_trigger", 1, &GridMap::ego_depthOdomCallback, this);
+  ego_depthOdom_nh_.reset(new ros::NodeHandle(node_));
+  ego_depthOdom_nh_->setCallbackQueue(&ego_depthOdom_queue_);
+  ego_depthOdom_spinner_ = std::make_unique<ros::AsyncSpinner>(1, &ego_depthOdom_queue_);
 
   /* ---------- 2. 占用网格更新定时器 ---------- */
   updateOccupancy_nh_.reset(new ros::NodeHandle(node_));
@@ -148,7 +149,7 @@ void GridMap::initMap(ros::NodeHandle &nh)
   // eng_ = default_random_engine(rd());
 
   pthread_setname_np(pthread_self(), "ego_depthOdom");
-  depthOdom_spinner_->start();
+  ego_depthOdom_spinner_->start();
   pthread_setname_np(pthread_self(), "ego_updateOcc");
   updateOccupancy_spinner_->start();
   pthread_setname_np(pthread_self(), "ego_vis");
@@ -158,7 +159,7 @@ void GridMap::initMap(ros::NodeHandle &nh)
 
 void GridMap::shutdown()
 {
-  depthOdom_spinner_->stop();
+  ego_depthOdom_spinner_->stop();
   updateOccupancy_spinner_->stop();
   vis_spinner_->stop();
 }
@@ -998,15 +999,20 @@ void GridMap::extrinsicCallback(const nav_msgs::OdometryConstPtr &odom)
 }
 
 std::atomic<double> depthOdom_wcet{0.0};
-// void GridMap::depthOdomCallback(const sensor_msgs::ImageConstPtr &img,
-//                                 const nav_msgs::OdometryConstPtr &odom)
- void GridMap::depthOdomCallback(const std_msgs::Empty::ConstPtr&)                           
+void GridMap::depthOdomCallback(const sensor_msgs::ImageConstPtr &img,
+                                const nav_msgs::OdometryConstPtr &odom)
 {
-  auto img = ros::topic::waitForMessage<sensor_msgs::Image>("grid_map/depth", *depthOdom_nh_, ros::Duration(0.005));
-  auto odom = ros::topic::waitForMessage<nav_msgs::Odometry>("grid_map/odom", *depthOdom_nh_, ros::Duration(0.005));
+  sync_odom_latest = odom;
+  sync_depth_latest = img;
+}
+
+void GridMap::ego_depthOdomCallback(const std_msgs::Empty::ConstPtr&)                           
+{
   syscall(SYS_kill, 0x11111130, 0);
   auto t0 = std::chrono::steady_clock::now();
   /* get pose */
+  nav_msgs::OdometryConstPtr odom = sync_odom_latest;
+  sensor_msgs::ImageConstPtr img = sync_depth_latest;
   Eigen::Quaterniond body_q = Eigen::Quaterniond(odom->pose.pose.orientation.w,
                                                  odom->pose.pose.orientation.x,
                                                  odom->pose.pose.orientation.y,
