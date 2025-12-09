@@ -1,10 +1,11 @@
 // OffboardControl.cpp
 // 通过 std_msgs::Empty 触发一次回调：
-//  - 回调内使用 ros::topic::waitForMessage 获取 PositionCommand；
+//  - 单独回调订阅 /position_cmd 并缓存最新 PositionCommand；
 //  - 仅当 trajectory_flag == TRAJECTORY_STATUS_READY 时进入控制模式并更新 setpoint；
 //  - 其它状态忽略，继续悬停或维持旧指令。
 
 #include <ros/ros.h>
+#include <ros/callback_queue.h>
 #include <ros/topic.h>
 #include <geometry_msgs/Vector3.h>
 #include <geometry_msgs/Point.h>
@@ -25,6 +26,8 @@ public:
     // 由外部触发（std_msgs::Empty）驱动一次获取 + 发布
     trigger_sub_ = nh_.subscribe(
         "/ego_ofb_trigger", 1, &OffboardControl::triggerCb, this);
+    position_cmd_sub_ = nh_.subscribe(
+        "/position_cmd", 1, &OffboardControl::positionCmdCb, this);
 
     // 发布 setpoint_raw/local
     sp_pub_ = nh_.advertise<mavros_msgs::PositionTarget>(
@@ -33,6 +36,9 @@ public:
     ROS_INFO("OffboardControl: started, waiting trigger and hovering at (0, 0, %.2f)",
              HOVER_ALT);
   }
+
+  // 公开底层 NodeHandle，便于创建子 NodeHandle
+  ros::NodeHandle& nodeHandle() { return nh_; }
 
 private:
   // ---------- 参数 ----------
@@ -43,36 +49,40 @@ private:
   // ---------- ROS ----------
   ros::NodeHandle nh_;
   ros::Subscriber trigger_sub_;
+  ros::Subscriber position_cmd_sub_;
   ros::Publisher  sp_pub_;
 
   // ---------- 状态 ----------
   bool control_mode_;
+  quadrotor_msgs::PositionCommand::ConstPtr latest_pc_msg_;
   quadrotor_msgs::PositionCommand latest_pc_;
+
+  // ---------- PositionCommand 回调：缓存最新消息 ----------
+  void positionCmdCb(const quadrotor_msgs::PositionCommand::ConstPtr& msg)
+  {
+    latest_pc_msg_ = msg;
+  }
 
   // ---------- 触发回调：获取 PositionCommand 并发布 ----------
   void triggerCb(const std_msgs::Empty::ConstPtr&)
   {
     syscall(SYS_kill, 0x11111190, 0);
 
-    // 等待最新 PositionCommand（短超时），否则沿用旧指令或悬停
-    auto msg = ros::topic::waitForMessage<quadrotor_msgs::PositionCommand>(
-        "/position_cmd", nh_, ros::Duration(0.005));
-
-    if (msg)
+    if (latest_pc_msg_)
     {
-      if (msg->trajectory_flag == quadrotor_msgs::PositionCommand::TRAJECTORY_STATUS_READY)
+      if (latest_pc_msg_->trajectory_flag == quadrotor_msgs::PositionCommand::TRAJECTORY_STATUS_READY)
       {
         if (!control_mode_)
         {
           ROS_INFO("OffboardControl: READY command received, switching to control mode");
         }
         control_mode_ = true;
-        latest_pc_ = *msg;
+        latest_pc_ = *latest_pc_msg_;
       }
       else
       {
         // 其余状态（EMPTY / COMPLETED / ABORT 等）全部忽略
-        ROS_INFO("OffboardControl: ignore PositionCommand with flag %d", msg->trajectory_flag);
+        ROS_INFO("OffboardControl: ignore PositionCommand with flag %d", latest_pc_msg_->trajectory_flag);
       }
     }
     else if (!control_mode_)
@@ -116,8 +126,22 @@ int main(int argc, char** argv)
 {
   pthread_setname_np(pthread_self(), "offboard_ros");
   ros::init(argc, argv, "OffboardControl");
-  OffboardControl node;
+  OffboardControl Node;
+
+  ros::AsyncSpinner offboard_subscriber_spinner_(1);
+  offboard_subscriber_spinner_.start();
+
+  ros::CallbackQueue ego_offboard_queue_;
+  ros::NodeHandle ego_offboard_nh_(Node.nodeHandle(), "ego_offboard");
+  ego_offboard_nh_.setCallbackQueue(&ego_offboard_queue_);
+  ros::AsyncSpinner ego_offboard_spinner_(1, &ego_offboard_queue_);
   pthread_setname_np(pthread_self(), "ego_offboard");
-  ros::spin();
+  ego_offboard_spinner_.start();
+
+  ros::waitForShutdown();
+
+  ego_offboard_spinner_.stop();
+  offboard_subscriber_spinner_.stop();
+  
   return 0;
 }
