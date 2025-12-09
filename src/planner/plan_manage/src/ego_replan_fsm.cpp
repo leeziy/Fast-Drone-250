@@ -45,9 +45,10 @@ namespace ego_planner
 
     waypoint_sub_ = nh.subscribe("/move_base_simple/goal", 1, &EGOReplanFSM::waypointCallback, this);
 
+    odometry_sub_ = nh.subscribe("odom_world", 1, &EGOReplanFSM::odometryCallback, this);
+
     ego_odometry_nh_.reset(new ros::NodeHandle(nh));
     ego_odometry_nh_->setCallbackQueue(&ego_odometry_queue_);
-    // odometry_sub_ = odometry_nh_->subscribe("odom_world", 1, &EGOReplanFSM::odometryCallback, this);
     ego_odom_trigger_ = ego_odometry_nh_->subscribe("/ego_odom_trigger", 1, &EGOReplanFSM::ego_odometryCallback, this);
     ego_odometry_spinner_ = std::make_unique<ros::AsyncSpinner>(1, &ego_odometry_queue_);
 
