@@ -1008,6 +1008,11 @@ void GridMap::depthOdomCallback(const sensor_msgs::ImageConstPtr &img,
 
 void GridMap::ego_depthOdomCallback(const std_msgs::Empty::ConstPtr&)                           
 {
+  if((!sync_odom_latest)||(!sync_depth_latest))
+  {
+    ROS_WARN("Odom & depth not sync.");
+    return;
+  }
   syscall(SYS_kill, 0x11111130, 0);
   auto t0 = std::chrono::steady_clock::now();
   /* get pose */
