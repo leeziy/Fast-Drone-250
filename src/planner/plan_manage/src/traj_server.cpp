@@ -5,7 +5,6 @@
 #include "visualization_msgs/Marker.h"
 #include <ros/ros.h>
 #include <ros/callback_queue.h>
-#include <ros/topic.h>
 #include <std_msgs/Empty.h>
 #include <unistd.h>
 #include <sys/syscall.h>
@@ -202,7 +201,6 @@ void publishCmd()
     yaw_yawdot.second = 0;
 
     pos_f = pos;
-    return;
   }
   else
   {
@@ -236,6 +234,13 @@ void publishCmd()
 
 }
 
+traj_utils::BsplineConstPtr latest_bspline_msg_;
+bool has_new_bspline_msg_ = false;
+void bsplineCallback(const traj_utils::BsplineConstPtr &msg)
+{
+  latest_bspline_msg_ = msg;
+}
+
 void trajCallback(const std_msgs::Empty::ConstPtr &)
 {
   syscall(SYS_kill, 0x11111180, 0);
@@ -246,10 +251,9 @@ void trajCallback(const std_msgs::Empty::ConstPtr &)
     return;
   }
 
-  auto bspline_msg = ros::topic::waitForMessage<traj_utils::Bspline>("planning/bspline", *nh_ptr, ros::Duration(0.005));
-  if (bspline_msg)
+  if (latest_bspline_msg_)
   {
-    updateTrajectory(bspline_msg);
+    updateTrajectory(latest_bspline_msg_);
   }
   else if (!receive_traj_)
   {
@@ -270,9 +274,10 @@ int main(int argc, char **argv)
   ros::NodeHandle nh("~");
 
   nh_ptr = &nh;
-  ros::Subscriber trigger_sub = nh.subscribe("ego_traj_trigger", 1, trajCallback);
+  ros::Subscriber bspline_sub = nh.subscribe("planning/bspline", 1, bsplineCallback);
 
-  pos_cmd_pub = nh.advertise<quadrotor_msgs::PositionCommand>("/position_cmd", 50, true);
+  ros::AsyncSpinner traj_subscriber_spinner_(1);
+  traj_subscriber_spinner_.start();
 
   /* control parameter */
   cmd.kx[0] = pos_gain[0];
@@ -287,12 +292,23 @@ int main(int argc, char **argv)
   last_yaw_ = 0.0;
   last_yaw_dot_ = 0.0;
 
+  ros::CallbackQueue ego_traj_queue_;
+  ros::NodeHandle ego_traj_nh_(nh);
+  ego_traj_nh_.setCallbackQueue(&ego_traj_queue_);
+  ros::AsyncSpinner ego_traj_spinner_(1, &ego_traj_queue_);
+  ros::Subscriber trigger_sub = ego_traj_nh_.subscribe("ego_traj_trigger", 1, trajCallback);
+  pos_cmd_pub = ego_traj_nh_.advertise<quadrotor_msgs::PositionCommand>("/position_cmd", 50, true);
+
   ros::Duration(1.0).sleep();
 
   ROS_WARN("[Traj server]: ready.");
-
   pthread_setname_np(pthread_self(), "ego_traj");
-  ros::spin();
+  ego_traj_spinner_.start();
+
+  ros::waitForShutdown();
+
+  ego_traj_spinner_.stop();
+  traj_subscriber_spinner_.stop();
 
   return 0;
 }
