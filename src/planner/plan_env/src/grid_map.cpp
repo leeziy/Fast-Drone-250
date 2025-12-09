@@ -121,12 +121,9 @@ void GridMap::initMap(ros::NodeHandle &nh)
 
 
   /* ---------- 3. 可视化定时器 ---------- */
-  vis_nh_.reset(new ros::NodeHandle(node_));
-  vis_nh_->setCallbackQueue(&vis_queue_);
-  vis_timer_ = vis_nh_->createTimer(ros::Duration(0.11), &GridMap::visCallback, this);
-  vis_spinner_ = std::make_unique<ros::AsyncSpinner>(1, &vis_queue_);
-  map_pub_ = vis_nh_->advertise<sensor_msgs::PointCloud2>("grid_map/occupancy", 10, true);
-  map_inf_pub_ = vis_nh_->advertise<sensor_msgs::PointCloud2>("grid_map/occupancy_inflate", 10, true);
+  vis_timer_ = node_.createTimer(ros::Duration(0.11), &GridMap::visCallback, this);
+  map_pub_ = node_.advertise<sensor_msgs::PointCloud2>("grid_map/occupancy", 10, true);
+  map_inf_pub_ = node_.advertise<sensor_msgs::PointCloud2>("grid_map/occupancy_inflate", 10, true);
 
   md_.occ_need_update_ = false;
   md_.local_updated_ = false;
@@ -152,8 +149,6 @@ void GridMap::initMap(ros::NodeHandle &nh)
   ego_depthOdom_spinner_->start();
   pthread_setname_np(pthread_self(), "ego_updateOcc");
   updateOccupancy_spinner_->start();
-  pthread_setname_np(pthread_self(), "ego_vis");
-  vis_spinner_->start();
   pthread_setname_np(pthread_self(), "ego_ros");
 }
 
@@ -161,7 +156,6 @@ void GridMap::shutdown()
 {
   ego_depthOdom_spinner_->stop();
   updateOccupancy_spinner_->stop();
-  vis_spinner_->stop();
 }
 
 void GridMap::resetBuffer()
