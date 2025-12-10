@@ -89,8 +89,8 @@
     <param name="grid_map/map_size_x"   value="$(arg map_size_x_)" /> 
     <param name="grid_map/map_size_y"   value="$(arg map_size_y_)" /> 
     <param name="grid_map/map_size_z"   value="$(arg map_size_z_)" /> 
-    <param name="grid_map/local_update_range_x"  value="7" /> 
-    <param name="grid_map/local_update_range_y"  value="7" /> 
+    <param name="grid_map/local_update_range_x"  value="5" /> 
+    <param name="grid_map/local_update_range_y"  value="5" /> 
     <param name="grid_map/local_update_range_z"  value="5" /> 
     <param name="grid_map/obstacles_inflation"     value="0.5" /> 
     <param name="grid_map/local_map_margin" value="10"/>
@@ -103,7 +103,7 @@
     <!-- depth filter -->
     <param name="grid_map/use_depth_filter" value="true"/>
     <param name="grid_map/depth_filter_tolerance" value="0.15"/>
-    <param name="grid_map/depth_filter_maxdist"   value="7.0"/>
+    <param name="grid_map/depth_filter_maxdist"   value="5.0"/>
     <param name="grid_map/depth_filter_mindist"   value="0.5"/>
     <param name="grid_map/depth_filter_margin"    value="2"/>
     <param name="grid_map/k_depth_scaling_factor" value="1000.0"/>
@@ -115,7 +115,7 @@
     <param name="grid_map/p_max"  value="0.90"/>
     <param name="grid_map/p_occ"  value="0.80"/>
     <param name="grid_map/min_ray_length" value="0.5"/>
-    <param name="grid_map/max_ray_length" value="7.0"/>
+    <param name="grid_map/max_ray_length" value="5.0"/>
 
     <param name="grid_map/visualization_truncate_height"   value="10"/>
     <param name="grid_map/show_occ_time"  value="false"/>
