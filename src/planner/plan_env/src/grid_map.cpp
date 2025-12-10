@@ -107,6 +107,7 @@ void GridMap::initMap(ros::NodeHandle &nh)
   sync_image_odom_.reset(new message_filters::Synchronizer<SyncPolicyImageOdom>(SyncPolicyImageOdom(100), *depth_sub_, *odom_sub_));
   sync_image_odom_->registerCallback(boost::bind(&GridMap::depthOdomCallback, this, _1, _2));
 
+  ego_depthOdom_nh_.reset(new ros::NodeHandle(node_));
   ego_depthOdom_trigger_ = ego_depthOdom_nh_->subscribe("/ego_depthOdom_trigger", 1, &GridMap::ego_depthOdomCallback, this);
   ego_depthOdom_nh_.reset(new ros::NodeHandle(node_));
   ego_depthOdom_nh_->setCallbackQueue(&ego_depthOdom_queue_);
