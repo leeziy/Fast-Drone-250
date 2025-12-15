@@ -469,7 +469,7 @@ namespace ego_planner
     syscall(SYS_kill, 0x11111160, 0);
     auto t0 = std::chrono::steady_clock::now();
     
-    exec_timer_.stop(); // To avoid blockage
+    // exec_timer_.stop(); // To avoid blockage
 
     static int fsm_num = 0;
     fsm_num++;
@@ -651,7 +651,7 @@ namespace ego_planner
     data_disp_pub_.publish(data_disp_);
 
     force_return:;
-    exec_timer_.start();
+    // exec_timer_.start();
 
     auto t1 = std::chrono::steady_clock::now();
     double t_loop = std::chrono::duration<double>(t1 - t0).count();

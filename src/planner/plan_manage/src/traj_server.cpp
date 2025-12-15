@@ -296,7 +296,7 @@ int main(int argc, char **argv)
   ros::NodeHandle ego_traj_nh_(nh);
   ego_traj_nh_.setCallbackQueue(&ego_traj_queue_);
   ros::AsyncSpinner ego_traj_spinner_(1, &ego_traj_queue_);
-  ros::Subscriber trigger_sub = ego_traj_nh_.subscribe("ego_traj_trigger", 1, trajCallback);
+  ros::Subscriber trigger_sub = ego_traj_nh_.subscribe("/ego_traj_trigger", 1, trajCallback);
   pos_cmd_pub = ego_traj_nh_.advertise<quadrotor_msgs::PositionCommand>("/position_cmd", 50, true);
 
   ros::Duration(1.0).sleep();
