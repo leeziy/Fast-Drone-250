@@ -303,6 +303,7 @@ int main(int argc, char **argv)
   ROS_WARN("[Traj server]: ready.");
   pthread_setname_np(pthread_self(), "ego_traj");
   ego_traj_spinner_.start();
+  pthread_setname_np(pthread_self(), "traj_ros");
 
   ros::waitForShutdown();
 

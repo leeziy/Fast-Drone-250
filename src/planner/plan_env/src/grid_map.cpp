@@ -109,7 +109,6 @@ void GridMap::initMap(ros::NodeHandle &nh)
 
   ego_depthOdom_nh_.reset(new ros::NodeHandle(node_));
   ego_depthOdom_trigger_ = ego_depthOdom_nh_->subscribe("/ego_depthOdom_trigger", 1, &GridMap::ego_depthOdomCallback, this);
-  ego_depthOdom_nh_.reset(new ros::NodeHandle(node_));
   ego_depthOdom_nh_->setCallbackQueue(&ego_depthOdom_queue_);
   ego_depthOdom_spinner_ = std::make_unique<ros::AsyncSpinner>(1, &ego_depthOdom_queue_);
 

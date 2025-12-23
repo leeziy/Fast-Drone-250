@@ -23,14 +23,20 @@ public:
   : nh_(),
     control_mode_(false)
   {
-    // 由外部触发（std_msgs::Empty）驱动一次获取 + 发布
-    trigger_sub_ = nh_.subscribe(
-        "/ego_ofb_trigger", 1, &OffboardControl::triggerCb, this);
     position_cmd_sub_ = nh_.subscribe(
         "/position_cmd", 1, &OffboardControl::positionCmdCb, this);
+  }
+
+  void initOffboard(ros::NodeHandle& offboard_nh)
+  {
+    offboard_nh_ = offboard_nh;
+
+    // 由外部触发（std_msgs::Empty）驱动一次获取 + 发布
+    trigger_sub_ = offboard_nh_.subscribe(
+        "/ego_ofb_trigger", 1, &OffboardControl::triggerCb, this);
 
     // 发布 setpoint_raw/local
-    sp_pub_ = nh_.advertise<mavros_msgs::PositionTarget>(
+    sp_pub_ = offboard_nh_.advertise<mavros_msgs::PositionTarget>(
         "/mavros/setpoint_raw/local", 10, true);
 
     ROS_INFO("OffboardControl: started, waiting trigger and hovering at (0, 0, %.2f)",
@@ -48,6 +54,7 @@ private:
 
   // ---------- ROS ----------
   ros::NodeHandle nh_;
+  ros::NodeHandle offboard_nh_;
   ros::Subscriber trigger_sub_;
   ros::Subscriber position_cmd_sub_;
   ros::Publisher  sp_pub_;
@@ -134,9 +141,11 @@ int main(int argc, char** argv)
   ros::CallbackQueue ego_offboard_queue_;
   ros::NodeHandle ego_offboard_nh_(Node.nodeHandle(), "ego_offboard");
   ego_offboard_nh_.setCallbackQueue(&ego_offboard_queue_);
+  Node.initOffboard(ego_offboard_nh_);
   ros::AsyncSpinner ego_offboard_spinner_(1, &ego_offboard_queue_);
   pthread_setname_np(pthread_self(), "ego_offboard");
   ego_offboard_spinner_.start();
+  pthread_setname_np(pthread_self(), "offboard_ros");
 
   ros::waitForShutdown();
 
