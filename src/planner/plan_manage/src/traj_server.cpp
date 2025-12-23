@@ -257,7 +257,6 @@ void trajCallback(const std_msgs::Empty::ConstPtr &)
   }
   else if (!receive_traj_)
   {
-    ROS_WARN_THROTTLE(1.0, "[Traj server]: no bspline received yet.");
     syscall(SYS_kill, 0x11111181, 0);
     return;
   }
