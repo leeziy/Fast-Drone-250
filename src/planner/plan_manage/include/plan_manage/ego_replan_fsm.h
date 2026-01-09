@@ -99,6 +99,7 @@ namespace ego_planner
     ros::Timer exec_timer_, safety_timer_;
     ros::Subscriber waypoint_sub_, odometry_sub_, swarm_trajs_sub_, broadcast_bspline_sub_, trigger_sub_;
     ros::Publisher replan_pub_, new_pub_, bspline_pub_, data_disp_pub_, swarm_trajs_pub_, broadcast_bspline_pub_;
+    ros::Publisher ego_end_trigger_pub_;
 
     ros::Subscriber ego_odom_trigger_, ego_execFSM_trigger_, ego_checkColl_trigger_;
 

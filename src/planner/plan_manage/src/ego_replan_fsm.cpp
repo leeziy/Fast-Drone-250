@@ -60,6 +60,7 @@ namespace ego_planner
 
     bspline_pub_ = execFSM_nh_->advertise<traj_utils::Bspline>("planning/bspline", 10, true);
     data_disp_pub_ = execFSM_nh_->advertise<traj_utils::DataDisp>("planning/data_display", 100, true);
+    ego_end_trigger_pub_ = execFSM_nh_->advertise<std_msgs::Empty>("/ego_end_trigger", 1);
 
     checkCollision_nh_.reset(new ros::NodeHandle(nh));
     checkCollision_nh_->setCallbackQueue(&checkCollision_queue_);
@@ -611,8 +612,10 @@ namespace ego_planner
             wp_id_ = 0;
             planNextWaypoint(wps_[wp_id_]);
           }
-
+          
+          ego_end_trigger_pub_.publish(std_msgs::Empty());
           changeFSMExecState(WAIT_TARGET, "FSM");
+          
           goto force_return;
           // return;
         }
