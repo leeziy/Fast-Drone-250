@@ -1,5 +1,7 @@
 #include "plan_env/grid_map.h"
 
+#include <cmath>
+
 // #define current_img_ md_.depth_image_[image_cnt_ & 1]
 // #define last_img_ md_.depth_image_[!(image_cnt_ & 1)]
 
@@ -17,6 +19,12 @@ void GridMap::initMap(ros::NodeHandle &nh)
   node_.param("grid_map/local_update_range_y", mp_.local_update_range_(1), -1.0);
   node_.param("grid_map/local_update_range_z", mp_.local_update_range_(2), -1.0);
   node_.param("grid_map/obstacles_inflation", mp_.obstacles_inflation_, -1.0);
+  node_.param("grid_map/inflated_occupancy_lifetime", mp_.inflated_occupancy_lifetime_, 1.0);
+  if (!std::isfinite(mp_.inflated_occupancy_lifetime_) || mp_.inflated_occupancy_lifetime_ < 0.0)
+  {
+    ROS_WARN("grid_map/inflated_occupancy_lifetime must be finite and nonnegative. Using 1.0 s.");
+    mp_.inflated_occupancy_lifetime_ = 1.0;
+  }
 
   node_.param("grid_map/fx", mp_.fx_, -1.0);
   node_.param("grid_map/fy", mp_.fy_, -1.0);
@@ -80,7 +88,12 @@ void GridMap::initMap(ros::NodeHandle &nh)
   int buffer_size = mp_.map_voxel_num_(0) * mp_.map_voxel_num_(1) * mp_.map_voxel_num_(2);
 
   md_.occupancy_buffer_ = vector<double>(buffer_size, mp_.clamp_min_log_ - mp_.unknown_flag_);
-  md_.occupancy_buffer_inflate_ = vector<char>(buffer_size, 0);
+  md_.occupancy_buffer_inflate_ = std::vector<std::atomic<double>>(buffer_size);
+  for (auto &voxel : md_.occupancy_buffer_inflate_)
+    voxel.store(0.0, std::memory_order_relaxed);
+  md_.expiring_inflated_voxels_.clear();
+  md_.local_bound_min_.setZero();
+  md_.local_bound_max_.setZero();
 
   md_.count_hit_and_miss_ = vector<short>(buffer_size, 0);
   md_.count_hit_ = vector<short>(buffer_size, 0);
@@ -154,12 +167,34 @@ void GridMap::initMap(ros::NodeHandle &nh)
   // eng_ = default_random_engine(rd());
 }
 
+double GridMap::inflatedOccupancyTime()
+{
+  using Clock = std::chrono::steady_clock;
+  static const auto start = Clock::now();
+  return std::chrono::duration<double>(Clock::now() - start).count();
+}
+
+double GridMap::inflatedOccupancyDeadline() const
+{
+  if (mp_.inflated_occupancy_lifetime_ == 0.0)
+    return 1.0;  // Remains occupied until explicitly cleared.
+
+  return inflatedOccupancyTime() + mp_.inflated_occupancy_lifetime_;
+}
+
+void GridMap::markInflatedOccupied(int address, double deadline)
+{
+  auto &voxel = md_.occupancy_buffer_inflate_[address];
+  if (mp_.inflated_occupancy_lifetime_ > 0.0 && voxel.load(std::memory_order_relaxed) == 0.0)
+    md_.expiring_inflated_voxels_.insert(address);
+
+  voxel.store(deadline, std::memory_order_relaxed);
+}
+
 void GridMap::resetBuffer()
 {
-  Eigen::Vector3d min_pos = mp_.map_min_boundary_;
-  Eigen::Vector3d max_pos = mp_.map_max_boundary_;
-
-  resetBuffer(min_pos, max_pos);
+  std::lock_guard<std::mutex> lock(map_mutex_);
+  resetInflatedRegion(mp_.map_min_boundary_, mp_.map_max_boundary_);
 
   md_.local_bound_min_ = Eigen::Vector3i::Zero();
   md_.local_bound_max_ = mp_.map_voxel_num_ - Eigen::Vector3i::Ones();
@@ -167,7 +202,12 @@ void GridMap::resetBuffer()
 
 void GridMap::resetBuffer(Eigen::Vector3d min_pos, Eigen::Vector3d max_pos)
 {
+  std::lock_guard<std::mutex> lock(map_mutex_);
+  resetInflatedRegion(min_pos, max_pos);
+}
 
+void GridMap::resetInflatedRegion(const Eigen::Vector3d &min_pos, const Eigen::Vector3d &max_pos)
+{
   Eigen::Vector3i min_id, max_id;
   posToIndex(min_pos, min_id);
   posToIndex(max_pos, max_id);
@@ -175,12 +215,20 @@ void GridMap::resetBuffer(Eigen::Vector3d min_pos, Eigen::Vector3d max_pos)
   boundIndex(min_id);
   boundIndex(max_id);
 
-  /* reset occ and dist buffer */
+  clearInflatedRegion(min_id, max_id);
+}
+
+void GridMap::clearInflatedRegion(const Eigen::Vector3i &min_id, const Eigen::Vector3i &max_id)
+{
   for (int x = min_id(0); x <= max_id(0); ++x)
     for (int y = min_id(1); y <= max_id(1); ++y)
       for (int z = min_id(2); z <= max_id(2); ++z)
       {
-        md_.occupancy_buffer_inflate_[toAddress(x, y, z)] = 0;
+        const int address = toAddress(x, y, z);
+        auto &voxel = md_.occupancy_buffer_inflate_[address];
+        if (mp_.inflated_occupancy_lifetime_ > 0.0 && voxel.load(std::memory_order_relaxed) != 0.0)
+          md_.expiring_inflated_voxels_.erase(address);
+        voxel.store(0.0, std::memory_order_relaxed);
       }
 }
 
@@ -605,13 +653,10 @@ void GridMap::clearAndInflateLocalMap()
   // inf_pts.resize(4 * inf_step + 3);
   Eigen::Vector3i inf_pt;
 
-  // clear outdated data
-  for (int x = md_.local_bound_min_(0); x <= md_.local_bound_max_(0); ++x)
-    for (int y = md_.local_bound_min_(1); y <= md_.local_bound_max_(1); ++y)
-      for (int z = md_.local_bound_min_(2); z <= md_.local_bound_max_(2); ++z)
-      {
-        md_.occupancy_buffer_inflate_[toAddress(x, y, z)] = 0;
-      }
+  if (mp_.inflated_occupancy_lifetime_ == 0.0)
+    clearInflatedRegion(md_.local_bound_min_, md_.local_bound_max_);
+
+  const double deadline = inflatedOccupancyDeadline();
 
   // inflate obstacles
   for (int x = md_.local_bound_min_(0); x <= md_.local_bound_max_(0); ++x)
@@ -626,13 +671,8 @@ void GridMap::clearAndInflateLocalMap()
           for (int k = 0; k < (int)inf_pts.size(); ++k)
           {
             inf_pt = inf_pts[k];
-            int idx_inf = toAddress(inf_pt);
-            if (idx_inf < 0 ||
-                idx_inf >= mp_.map_voxel_num_(0) * mp_.map_voxel_num_(1) * mp_.map_voxel_num_(2))
-            {
-              continue;
-            }
-            md_.occupancy_buffer_inflate_[idx_inf] = 1;
+            if (isInMap(inf_pt))
+              markInflatedOccupied(toAddress(inf_pt), deadline);
           }
         }
       }
@@ -657,6 +697,7 @@ std::atomic<double> updateOccupancy_wcet{0.0};
 void GridMap::updateOccupancyCallback(const ros::TimerEvent & /*event*/)
 {
   auto t0 = std::chrono::steady_clock::now();
+  std::lock_guard<std::mutex> lock(map_mutex_);
   
   if (md_.last_occ_update_time_.toSec() < 1.0 ) md_.last_occ_update_time_ = ros::Time::now();
   
@@ -710,6 +751,7 @@ void GridMap::updateOccupancyCallback(const ros::TimerEvent & /*event*/)
 void GridMap::depthPoseCallback(const sensor_msgs::ImageConstPtr &img,
                                 const geometry_msgs::PoseStampedConstPtr &pose)
 {
+  std::lock_guard<std::mutex> lock(map_mutex_);
   /* get depth image */
   cv_bridge::CvImagePtr cv_ptr;
   cv_ptr = cv_bridge::toCvCopy(img, img->encoding);
@@ -745,6 +787,7 @@ void GridMap::depthPoseCallback(const sensor_msgs::ImageConstPtr &img,
 
 void GridMap::odomCallback(const nav_msgs::OdometryConstPtr &odom)
 {
+  std::lock_guard<std::mutex> lock(map_mutex_);
   if (md_.has_first_depth_)
     return;
 
@@ -761,6 +804,7 @@ void GridMap::cloudCallback(const sensor_msgs::PointCloud2ConstPtr &img)
   pcl::PointCloud<pcl::PointXYZ> latest_cloud;
   pcl::fromROSMsg(*img, latest_cloud);
 
+  std::lock_guard<std::mutex> lock(map_mutex_);
   md_.has_cloud_ = true;
 
   if (!md_.has_odom_)
@@ -775,9 +819,11 @@ void GridMap::cloudCallback(const sensor_msgs::PointCloud2ConstPtr &img)
   if (isnan(md_.camera_pos_(0)) || isnan(md_.camera_pos_(1)) || isnan(md_.camera_pos_(2)))
     return;
 
-  this->resetBuffer(md_.camera_pos_ - mp_.local_update_range_,
-                    md_.camera_pos_ + mp_.local_update_range_);
+  if (mp_.inflated_occupancy_lifetime_ == 0.0)
+    resetInflatedRegion(md_.camera_pos_ - mp_.local_update_range_,
+                        md_.camera_pos_ + mp_.local_update_range_);
 
+  const double deadline = inflatedOccupancyDeadline();
   pcl::PointXYZ pt;
   Eigen::Vector3d p3d, p3d_inf;
 
@@ -830,9 +876,7 @@ void GridMap::cloudCallback(const sensor_msgs::PointCloud2ConstPtr &img)
             if (!isInMap(inf_pt))
               continue;
 
-            int idx_inf = toAddress(inf_pt);
-
-            md_.occupancy_buffer_inflate_[idx_inf] = 1;
+            markInflatedOccupied(toAddress(inf_pt), deadline);
           }
     }
   }
@@ -861,6 +905,7 @@ void GridMap::publishMap()
   if (map_pub_.getNumSubscribers() <= 0)
     return;
 
+  std::lock_guard<std::mutex> lock(map_mutex_);
   pcl::PointXYZ pt;
   pcl::PointCloud<pcl::PointXYZ> cloud;
 
@@ -904,43 +949,74 @@ void GridMap::publishMap()
 
 void GridMap::publishMapInflate(bool all_info)
 {
-
-  if (map_inf_pub_.getNumSubscribers() <= 0)
+  const bool publish = map_inf_pub_.getNumSubscribers() > 0;
+  if (!publish && mp_.inflated_occupancy_lifetime_ == 0.0)
     return;
 
-  pcl::PointXYZ pt;
   pcl::PointCloud<pcl::PointXYZ> cloud;
+  const auto add_voxel = [&](const Eigen::Vector3i &id) {
+    Eigen::Vector3d pos;
+    indexToPos(id, pos);
+    if (pos(2) > mp_.visualization_truncate_height_)
+      return;
 
-  Eigen::Vector3i min_cut = md_.local_bound_min_;
-  Eigen::Vector3i max_cut = md_.local_bound_max_;
+    pcl::PointXYZ pt;
+    pt.x = pos(0);
+    pt.y = pos(1);
+    pt.z = pos(2);
+    cloud.push_back(pt);
+  };
 
-  if (all_info)
   {
-    int lmm = mp_.local_map_margin_;
-    min_cut -= Eigen::Vector3i(lmm, lmm, lmm);
-    max_cut += Eigen::Vector3i(lmm, lmm, lmm);
+    std::lock_guard<std::mutex> lock(map_mutex_);
+    if (mp_.inflated_occupancy_lifetime_ > 0.0)
+    {
+      // Live voxels can outlast the local update bounds.
+      const double now = inflatedOccupancyTime();
+      const int stride_y = mp_.map_voxel_num_(2);
+      const int stride_x = mp_.map_voxel_num_(1) * stride_y;
+      auto &active = md_.expiring_inflated_voxels_;
+      for (auto it = active.begin(); it != active.end();)
+      {
+        const int address = *it;
+        auto &voxel = md_.occupancy_buffer_inflate_[address];
+        if (voxel.load(std::memory_order_relaxed) <= now)
+        {
+          voxel.store(0.0, std::memory_order_relaxed);
+          it = active.erase(it);
+          continue;
+        }
+
+        if (publish)
+          add_voxel(Eigen::Vector3i(address / stride_x, (address % stride_x) / stride_y,
+                                    address % stride_y));
+        ++it;
+      }
+    }
+    else
+    {
+      Eigen::Vector3i min_cut = md_.local_bound_min_;
+      Eigen::Vector3i max_cut = md_.local_bound_max_;
+      if (all_info)
+      {
+        const int margin = mp_.local_map_margin_;
+        min_cut -= Eigen::Vector3i(margin, margin, margin);
+        max_cut += Eigen::Vector3i(margin, margin, margin);
+      }
+
+      boundIndex(min_cut);
+      boundIndex(max_cut);
+
+      for (int x = min_cut(0); x <= max_cut(0); ++x)
+        for (int y = min_cut(1); y <= max_cut(1); ++y)
+          for (int z = min_cut(2); z <= max_cut(2); ++z)
+            if (isInflatedOccupied(toAddress(x, y, z)))
+              add_voxel(Eigen::Vector3i(x, y, z));
+    }
   }
 
-  boundIndex(min_cut);
-  boundIndex(max_cut);
-
-  for (int x = min_cut(0); x <= max_cut(0); ++x)
-    for (int y = min_cut(1); y <= max_cut(1); ++y)
-      for (int z = min_cut(2); z <= max_cut(2); ++z)
-      {
-        if (md_.occupancy_buffer_inflate_[toAddress(x, y, z)] == 0)
-          continue;
-
-        Eigen::Vector3d pos;
-        indexToPos(Eigen::Vector3i(x, y, z), pos);
-        if (pos(2) > mp_.visualization_truncate_height_)
-          continue;
-
-        pt.x = pos(0);
-        pt.y = pos(1);
-        pt.z = pos(2);
-        cloud.push_back(pt);
-      }
+  if (!publish)
+    return;
 
   cloud.width = cloud.points.size();
   cloud.height = 1;
@@ -971,6 +1047,7 @@ void GridMap::getRegion(Eigen::Vector3d &ori, Eigen::Vector3d &size)
 
 void GridMap::extrinsicCallback(const nav_msgs::OdometryConstPtr &odom)
 {
+  std::lock_guard<std::mutex> lock(map_mutex_);
   Eigen::Quaterniond cam2body_q = Eigen::Quaterniond(odom->pose.pose.orientation.w,
                                                      odom->pose.pose.orientation.x,
                                                      odom->pose.pose.orientation.y,
@@ -988,6 +1065,7 @@ void GridMap::depthOdomCallback(const sensor_msgs::ImageConstPtr &img,
                                 const nav_msgs::OdometryConstPtr &odom)
 {
   auto t0 = std::chrono::steady_clock::now();
+  std::lock_guard<std::mutex> lock(map_mutex_);
   /* get pose */
   Eigen::Quaterniond body_q = Eigen::Quaterniond(odom->pose.pose.orientation.w,
                                                  odom->pose.pose.orientation.x,
