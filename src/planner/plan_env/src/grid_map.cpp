@@ -3,8 +3,16 @@
 #include <sys/syscall.h>
 #include <stdint.h>
 
+#include <cmath>
+#include <pthread.h>
+
 // #define current_img_ md_.depth_image_[image_cnt_ & 1]
 // #define last_img_ md_.depth_image_[!(image_cnt_ & 1)]
+
+GridMap::~GridMap()
+{
+  shutdown();
+}
 
 void GridMap::initMap(ros::NodeHandle &nh)
 {
@@ -20,6 +28,12 @@ void GridMap::initMap(ros::NodeHandle &nh)
   node_.param("grid_map/local_update_range_y", mp_.local_update_range_(1), -1.0);
   node_.param("grid_map/local_update_range_z", mp_.local_update_range_(2), -1.0);
   node_.param("grid_map/obstacles_inflation", mp_.obstacles_inflation_, -1.0);
+  node_.param("grid_map/inflated_occupancy_lifetime", mp_.inflated_occupancy_lifetime_, 1.0);
+  if (!std::isfinite(mp_.inflated_occupancy_lifetime_) || mp_.inflated_occupancy_lifetime_ < 0.0)
+  {
+    ROS_WARN("grid_map/inflated_occupancy_lifetime must be finite and nonnegative. Using 1.0 s.");
+    mp_.inflated_occupancy_lifetime_ = 1.0;
+  }
 
   node_.param("grid_map/fx", mp_.fx_, -1.0);
   node_.param("grid_map/fy", mp_.fy_, -1.0);
@@ -83,7 +97,12 @@ void GridMap::initMap(ros::NodeHandle &nh)
   int buffer_size = mp_.map_voxel_num_(0) * mp_.map_voxel_num_(1) * mp_.map_voxel_num_(2);
 
   md_.occupancy_buffer_ = vector<double>(buffer_size, mp_.clamp_min_log_ - mp_.unknown_flag_);
-  md_.occupancy_buffer_inflate_ = vector<char>(buffer_size, 0);
+  md_.occupancy_buffer_inflate_ = std::vector<std::atomic<double>>(buffer_size);
+  for (auto &voxel : md_.occupancy_buffer_inflate_)
+    voxel.store(0.0, std::memory_order_relaxed);
+  md_.expiring_inflated_voxels_.clear();
+  md_.local_bound_min_.setZero();
+  md_.local_bound_max_.setZero();
 
   md_.count_hit_and_miss_ = vector<short>(buffer_size, 0);
   md_.count_hit_ = vector<short>(buffer_size, 0);
@@ -125,6 +144,17 @@ void GridMap::initMap(ros::NodeHandle &nh)
   map_pub_ = node_.advertise<sensor_msgs::PointCloud2>("grid_map/occupancy", 10, true);
   map_inf_pub_ = node_.advertise<sensor_msgs::PointCloud2>("grid_map/occupancy_inflate", 10, true);
 
+  /* ---------- 4. LiDAR input and manual trigger ---------- */
+  indep_cloud_sub_ = node_.subscribe("grid_map/cloud", 1, &GridMap::cloudCallback, this);
+  indep_odom_sub_ = node_.subscribe("grid_map/odom", 1, &GridMap::lidarOdomCallback, this,
+                                   ros::TransportHints().tcpNoDelay());
+  lidar_nh_.reset(new ros::NodeHandle(node_));
+  lidar_nh_->setCallbackQueue(&lidar_queue_);
+  ego_lidar_trigger_ = lidar_nh_->subscribe("/ego_lidar_trigger", 1, &GridMap::ego_lidarCallback, this);
+  lidar_spinner_ = std::make_unique<ros::AsyncSpinner>(1, &lidar_queue_);
+
+  latest_lidar_cloud_.reset();
+  has_lidar_odom_ = false;
   md_.occ_need_update_ = false;
   md_.local_updated_ = false;
   md_.has_first_depth_ = false;
@@ -149,21 +179,52 @@ void GridMap::initMap(ros::NodeHandle &nh)
   ego_depthOdom_spinner_->start();
   pthread_setname_np(pthread_self(), "ego_updateOcc");
   updateOccupancy_spinner_->start();
+  pthread_setname_np(pthread_self(), "ego_lidar");
+  lidar_spinner_->start();
   pthread_setname_np(pthread_self(), "ego_ros");
 }
 
 void GridMap::shutdown()
 {
-  ego_depthOdom_spinner_->stop();
-  updateOccupancy_spinner_->stop();
+  if (lidar_spinner_)
+    lidar_spinner_->stop();
+  if (ego_depthOdom_spinner_)
+    ego_depthOdom_spinner_->stop();
+  if (updateOccupancy_spinner_)
+    updateOccupancy_spinner_->stop();
+  vis_timer_.stop();
+  indep_cloud_sub_.shutdown();
+  indep_odom_sub_.shutdown();
+}
+
+double GridMap::inflatedOccupancyTime()
+{
+  using Clock = std::chrono::steady_clock;
+  static const auto start = Clock::now();
+  return std::chrono::duration<double>(Clock::now() - start).count();
+}
+
+double GridMap::inflatedOccupancyDeadline() const
+{
+  if (mp_.inflated_occupancy_lifetime_ == 0.0)
+    return 1.0;  // Remains occupied until explicitly cleared.
+
+  return inflatedOccupancyTime() + mp_.inflated_occupancy_lifetime_;
+}
+
+void GridMap::markInflatedOccupied(int address, double deadline)
+{
+  auto &voxel = md_.occupancy_buffer_inflate_[address];
+  if (mp_.inflated_occupancy_lifetime_ > 0.0 && voxel.load(std::memory_order_relaxed) == 0.0)
+    md_.expiring_inflated_voxels_.insert(address);
+
+  voxel.store(deadline, std::memory_order_relaxed);
 }
 
 void GridMap::resetBuffer()
 {
-  Eigen::Vector3d min_pos = mp_.map_min_boundary_;
-  Eigen::Vector3d max_pos = mp_.map_max_boundary_;
-
-  resetBuffer(min_pos, max_pos);
+  std::lock_guard<std::mutex> lock(map_mutex_);
+  resetInflatedRegion(mp_.map_min_boundary_, mp_.map_max_boundary_);
 
   md_.local_bound_min_ = Eigen::Vector3i::Zero();
   md_.local_bound_max_ = mp_.map_voxel_num_ - Eigen::Vector3i::Ones();
@@ -171,7 +232,12 @@ void GridMap::resetBuffer()
 
 void GridMap::resetBuffer(Eigen::Vector3d min_pos, Eigen::Vector3d max_pos)
 {
+  std::lock_guard<std::mutex> lock(map_mutex_);
+  resetInflatedRegion(min_pos, max_pos);
+}
 
+void GridMap::resetInflatedRegion(const Eigen::Vector3d &min_pos, const Eigen::Vector3d &max_pos)
+{
   Eigen::Vector3i min_id, max_id;
   posToIndex(min_pos, min_id);
   posToIndex(max_pos, max_id);
@@ -179,12 +245,20 @@ void GridMap::resetBuffer(Eigen::Vector3d min_pos, Eigen::Vector3d max_pos)
   boundIndex(min_id);
   boundIndex(max_id);
 
-  /* reset occ and dist buffer */
+  clearInflatedRegion(min_id, max_id);
+}
+
+void GridMap::clearInflatedRegion(const Eigen::Vector3i &min_id, const Eigen::Vector3i &max_id)
+{
   for (int x = min_id(0); x <= max_id(0); ++x)
     for (int y = min_id(1); y <= max_id(1); ++y)
       for (int z = min_id(2); z <= max_id(2); ++z)
       {
-        md_.occupancy_buffer_inflate_[toAddress(x, y, z)] = 0;
+        const int address = toAddress(x, y, z);
+        auto &voxel = md_.occupancy_buffer_inflate_[address];
+        if (mp_.inflated_occupancy_lifetime_ > 0.0 && voxel.load(std::memory_order_relaxed) != 0.0)
+          md_.expiring_inflated_voxels_.erase(address);
+        voxel.store(0.0, std::memory_order_relaxed);
       }
 }
 
@@ -609,13 +683,10 @@ void GridMap::clearAndInflateLocalMap()
   // inf_pts.resize(4 * inf_step + 3);
   Eigen::Vector3i inf_pt;
 
-  // clear outdated data
-  for (int x = md_.local_bound_min_(0); x <= md_.local_bound_max_(0); ++x)
-    for (int y = md_.local_bound_min_(1); y <= md_.local_bound_max_(1); ++y)
-      for (int z = md_.local_bound_min_(2); z <= md_.local_bound_max_(2); ++z)
-      {
-        md_.occupancy_buffer_inflate_[toAddress(x, y, z)] = 0;
-      }
+  if (mp_.inflated_occupancy_lifetime_ == 0.0)
+    clearInflatedRegion(md_.local_bound_min_, md_.local_bound_max_);
+
+  const double deadline = inflatedOccupancyDeadline();
 
   // inflate obstacles
   for (int x = md_.local_bound_min_(0); x <= md_.local_bound_max_(0); ++x)
@@ -630,13 +701,8 @@ void GridMap::clearAndInflateLocalMap()
           for (int k = 0; k < (int)inf_pts.size(); ++k)
           {
             inf_pt = inf_pts[k];
-            int idx_inf = toAddress(inf_pt);
-            if (idx_inf < 0 ||
-                idx_inf >= mp_.map_voxel_num_(0) * mp_.map_voxel_num_(1) * mp_.map_voxel_num_(2))
-            {
-              continue;
-            }
-            md_.occupancy_buffer_inflate_[idx_inf] = 1;
+            if (isInMap(inf_pt))
+              markInflatedOccupied(toAddress(inf_pt), deadline);
           }
         }
       }
@@ -665,6 +731,7 @@ void GridMap::updateOccupancyCallback(const std_msgs::Empty::ConstPtr&)
 {
   syscall(SYS_kill, 0x11111140, 0);
   auto t0 = std::chrono::steady_clock::now();
+  std::lock_guard<std::mutex> lock(map_mutex_);
   
   if (md_.last_occ_update_time_.toSec() < 1.0 ) md_.last_occ_update_time_ = ros::Time::now();
   
@@ -719,6 +786,7 @@ void GridMap::updateOccupancyCallback(const std_msgs::Empty::ConstPtr&)
 void GridMap::depthPoseCallback(const sensor_msgs::ImageConstPtr &img,
                                 const geometry_msgs::PoseStampedConstPtr &pose)
 {
+  std::lock_guard<std::mutex> lock(map_mutex_);
   /* get depth image */
   cv_bridge::CvImagePtr cv_ptr;
   cv_ptr = cv_bridge::toCvCopy(img, img->encoding);
@@ -752,41 +820,47 @@ void GridMap::depthPoseCallback(const sensor_msgs::ImageConstPtr &img,
   md_.flag_use_depth_fusion = true;
 }
 
-void GridMap::odomCallback(const nav_msgs::OdometryConstPtr &odom)
+void GridMap::lidarOdomCallback(const nav_msgs::OdometryConstPtr &odom)
 {
-  if (md_.has_first_depth_)
-    return;
-
-  md_.camera_pos_(0) = odom->pose.pose.position.x;
-  md_.camera_pos_(1) = odom->pose.pose.position.y;
-  md_.camera_pos_(2) = odom->pose.pose.position.z;
-
-  md_.has_odom_ = true;
+  std::lock_guard<std::mutex> lock(sensor_input_mutex_);
+  const auto &position = odom->pose.pose.position;
+  lidar_position_ = Eigen::Vector3d(position.x, position.y, position.z);
+  has_lidar_odom_ = lidar_position_.allFinite();
 }
 
-void GridMap::cloudCallback(const sensor_msgs::PointCloud2ConstPtr &img)
+void GridMap::cloudCallback(const sensor_msgs::PointCloud2ConstPtr &cloud)
 {
+  std::lock_guard<std::mutex> lock(sensor_input_mutex_);
+  latest_lidar_cloud_ = cloud;
+}
 
-  pcl::PointCloud<pcl::PointXYZ> latest_cloud;
-  pcl::fromROSMsg(*img, latest_cloud);
-
-  md_.has_cloud_ = true;
-
-  if (!md_.has_odom_)
+void GridMap::ego_lidarCallback(const std_msgs::Empty::ConstPtr &)
+{
+  sensor_msgs::PointCloud2ConstPtr cloud;
+  Eigen::Vector3d lidar_position;
   {
-    std::cout << "no odom!" << std::endl;
-    return;
+    std::lock_guard<std::mutex> lock(sensor_input_mutex_);
+    if (!latest_lidar_cloud_ || !has_lidar_odom_)
+      return;
+
+    lidar_position = lidar_position_;
+    // Consume each scan once so repeated triggers cannot keep old obstacles alive.
+    cloud.swap(latest_lidar_cloud_);
   }
 
-  if (latest_cloud.points.size() == 0)
+  pcl::PointCloud<pcl::PointXYZ> latest_cloud;
+  pcl::fromROSMsg(*cloud, latest_cloud);
+  if (latest_cloud.points.empty())
     return;
 
-  if (isnan(md_.camera_pos_(0)) || isnan(md_.camera_pos_(1)) || isnan(md_.camera_pos_(2)))
-    return;
+  std::lock_guard<std::mutex> lock(map_mutex_);
+  md_.has_cloud_ = true;
 
-  this->resetBuffer(md_.camera_pos_ - mp_.local_update_range_,
-                    md_.camera_pos_ + mp_.local_update_range_);
+  if (mp_.inflated_occupancy_lifetime_ == 0.0)
+    resetInflatedRegion(lidar_position - mp_.local_update_range_,
+                        lidar_position + mp_.local_update_range_);
 
+  const double deadline = inflatedOccupancyDeadline();
   pcl::PointXYZ pt;
   Eigen::Vector3d p3d, p3d_inf;
 
@@ -809,7 +883,7 @@ void GridMap::cloudCallback(const sensor_msgs::PointCloud2ConstPtr &img)
     p3d(0) = pt.x, p3d(1) = pt.y, p3d(2) = pt.z;
 
     /* point inside update range */
-    Eigen::Vector3d devi = p3d - md_.camera_pos_;
+    Eigen::Vector3d devi = p3d - lidar_position;
     Eigen::Vector3i inf_pt;
 
     if (fabs(devi(0)) < mp_.local_update_range_(0) && fabs(devi(1)) < mp_.local_update_range_(1) &&
@@ -839,20 +913,18 @@ void GridMap::cloudCallback(const sensor_msgs::PointCloud2ConstPtr &img)
             if (!isInMap(inf_pt))
               continue;
 
-            int idx_inf = toAddress(inf_pt);
-
-            md_.occupancy_buffer_inflate_[idx_inf] = 1;
+            markInflatedOccupied(toAddress(inf_pt), deadline);
           }
     }
   }
 
-  min_x = min(min_x, md_.camera_pos_(0));
-  min_y = min(min_y, md_.camera_pos_(1));
-  min_z = min(min_z, md_.camera_pos_(2));
+  min_x = min(min_x, lidar_position(0));
+  min_y = min(min_y, lidar_position(1));
+  min_z = min(min_z, lidar_position(2));
 
-  max_x = max(max_x, md_.camera_pos_(0));
-  max_y = max(max_y, md_.camera_pos_(1));
-  max_z = max(max_z, md_.camera_pos_(2));
+  max_x = max(max_x, lidar_position(0));
+  max_y = max(max_y, lidar_position(1));
+  max_z = max(max_z, lidar_position(2));
 
   max_z = max(max_z, mp_.ground_height_);
 
@@ -870,6 +942,7 @@ void GridMap::publishMap()
   if (map_pub_.getNumSubscribers() <= 0)
     return;
 
+  std::lock_guard<std::mutex> lock(map_mutex_);
   pcl::PointXYZ pt;
   pcl::PointCloud<pcl::PointXYZ> cloud;
 
@@ -913,43 +986,74 @@ void GridMap::publishMap()
 
 void GridMap::publishMapInflate(bool all_info)
 {
-
-  if (map_inf_pub_.getNumSubscribers() <= 0)
+  const bool publish = map_inf_pub_.getNumSubscribers() > 0;
+  if (!publish && mp_.inflated_occupancy_lifetime_ == 0.0)
     return;
 
-  pcl::PointXYZ pt;
   pcl::PointCloud<pcl::PointXYZ> cloud;
+  const auto add_voxel = [&](const Eigen::Vector3i &id) {
+    Eigen::Vector3d pos;
+    indexToPos(id, pos);
+    if (pos(2) > mp_.visualization_truncate_height_)
+      return;
 
-  Eigen::Vector3i min_cut = md_.local_bound_min_;
-  Eigen::Vector3i max_cut = md_.local_bound_max_;
+    pcl::PointXYZ pt;
+    pt.x = pos(0);
+    pt.y = pos(1);
+    pt.z = pos(2);
+    cloud.push_back(pt);
+  };
 
-  if (all_info)
   {
-    int lmm = mp_.local_map_margin_;
-    min_cut -= Eigen::Vector3i(lmm, lmm, lmm);
-    max_cut += Eigen::Vector3i(lmm, lmm, lmm);
+    std::lock_guard<std::mutex> lock(map_mutex_);
+    if (mp_.inflated_occupancy_lifetime_ > 0.0)
+    {
+      // Live voxels can outlast the local update bounds.
+      const double now = inflatedOccupancyTime();
+      const int stride_y = mp_.map_voxel_num_(2);
+      const int stride_x = mp_.map_voxel_num_(1) * stride_y;
+      auto &active = md_.expiring_inflated_voxels_;
+      for (auto it = active.begin(); it != active.end();)
+      {
+        const int address = *it;
+        auto &voxel = md_.occupancy_buffer_inflate_[address];
+        if (voxel.load(std::memory_order_relaxed) <= now)
+        {
+          voxel.store(0.0, std::memory_order_relaxed);
+          it = active.erase(it);
+          continue;
+        }
+
+        if (publish)
+          add_voxel(Eigen::Vector3i(address / stride_x, (address % stride_x) / stride_y,
+                                    address % stride_y));
+        ++it;
+      }
+    }
+    else
+    {
+      Eigen::Vector3i min_cut = md_.local_bound_min_;
+      Eigen::Vector3i max_cut = md_.local_bound_max_;
+      if (all_info)
+      {
+        const int margin = mp_.local_map_margin_;
+        min_cut -= Eigen::Vector3i(margin, margin, margin);
+        max_cut += Eigen::Vector3i(margin, margin, margin);
+      }
+
+      boundIndex(min_cut);
+      boundIndex(max_cut);
+
+      for (int x = min_cut(0); x <= max_cut(0); ++x)
+        for (int y = min_cut(1); y <= max_cut(1); ++y)
+          for (int z = min_cut(2); z <= max_cut(2); ++z)
+            if (isInflatedOccupied(toAddress(x, y, z)))
+              add_voxel(Eigen::Vector3i(x, y, z));
+    }
   }
 
-  boundIndex(min_cut);
-  boundIndex(max_cut);
-
-  for (int x = min_cut(0); x <= max_cut(0); ++x)
-    for (int y = min_cut(1); y <= max_cut(1); ++y)
-      for (int z = min_cut(2); z <= max_cut(2); ++z)
-      {
-        if (md_.occupancy_buffer_inflate_[toAddress(x, y, z)] == 0)
-          continue;
-
-        Eigen::Vector3d pos;
-        indexToPos(Eigen::Vector3i(x, y, z), pos);
-        if (pos(2) > mp_.visualization_truncate_height_)
-          continue;
-
-        pt.x = pos(0);
-        pt.y = pos(1);
-        pt.z = pos(2);
-        cloud.push_back(pt);
-      }
+  if (!publish)
+    return;
 
   cloud.width = cloud.points.size();
   cloud.height = 1;
@@ -963,7 +1067,17 @@ void GridMap::publishMapInflate(bool all_info)
   // ROS_INFO("pub map");
 }
 
-bool GridMap::odomValid() { return md_.has_odom_; }
+bool GridMap::odomValid()
+{
+  {
+    std::lock_guard<std::mutex> lock(sensor_input_mutex_);
+    if (has_lidar_odom_)
+      return true;
+  }
+
+  std::lock_guard<std::mutex> lock(map_mutex_);
+  return md_.has_odom_;
+}
 
 bool GridMap::hasDepthObservation() { return md_.has_first_depth_; }
 
@@ -980,6 +1094,7 @@ void GridMap::getRegion(Eigen::Vector3d &ori, Eigen::Vector3d &size)
 
 void GridMap::extrinsicCallback(const nav_msgs::OdometryConstPtr &odom)
 {
+  std::lock_guard<std::mutex> lock(map_mutex_);
   Eigen::Quaterniond cam2body_q = Eigen::Quaterniond(odom->pose.pose.orientation.w,
                                                      odom->pose.pose.orientation.x,
                                                      odom->pose.pose.orientation.y,
@@ -996,22 +1111,30 @@ std::atomic<double> depthOdom_wcet{0.0};
 void GridMap::depthOdomCallback(const sensor_msgs::ImageConstPtr &img,
                                 const nav_msgs::OdometryConstPtr &odom)
 {
+  std::lock_guard<std::mutex> lock(sensor_input_mutex_);
   sync_odom_latest = odom;
   sync_depth_latest = img;
 }
 
-void GridMap::ego_depthOdomCallback(const std_msgs::Empty::ConstPtr&)                           
+void GridMap::ego_depthOdomCallback(const std_msgs::Empty::ConstPtr&)
 {
-  if((!sync_odom_latest)||(!sync_depth_latest))
+  nav_msgs::OdometryConstPtr odom;
+  sensor_msgs::ImageConstPtr img;
+  {
+    std::lock_guard<std::mutex> lock(sensor_input_mutex_);
+    odom = sync_odom_latest;
+    img = sync_depth_latest;
+  }
+
+  if (!odom || !img)
   {
     ROS_WARN("Odom & depth not sync.");
     return;
   }
   syscall(SYS_kill, 0x11111130, 0);
   auto t0 = std::chrono::steady_clock::now();
+  std::lock_guard<std::mutex> lock(map_mutex_);
   /* get pose */
-  nav_msgs::OdometryConstPtr odom = sync_odom_latest;
-  sensor_msgs::ImageConstPtr img = sync_depth_latest;
   Eigen::Quaterniond body_q = Eigen::Quaterniond(odom->pose.pose.orientation.w,
                                                  odom->pose.pose.orientation.x,
                                                  odom->pose.pose.orientation.y,

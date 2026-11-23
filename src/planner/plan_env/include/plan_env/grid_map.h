@@ -16,6 +16,11 @@
 #include <tuple>
 #include <visualization_msgs/Marker.h>
 
+#include <atomic>
+#include <chrono>
+#include <mutex>
+#include <unordered_set>
+
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
 #include <pcl_conversions/pcl_conversions.h>
@@ -57,6 +62,7 @@ struct MappingParameters {
   Eigen::Vector3d local_update_range_;
   double resolution_, resolution_inv_;
   double obstacles_inflation_;
+  double inflated_occupancy_lifetime_;
   string frame_id_;
   int pose_type_;
 
@@ -96,7 +102,9 @@ struct MappingData {
   // main map data, occupancy of each voxel and Euclidean distance
 
   std::vector<double> occupancy_buffer_;
-  std::vector<char> occupancy_buffer_inflate_;
+  // 0 means free. An occupied voxel stores its steady-clock expiration time.
+  std::vector<std::atomic<double>> occupancy_buffer_inflate_;
+  std::unordered_set<int> expiring_inflated_voxels_;
 
   // camera position and pose data
 
@@ -147,7 +155,7 @@ struct MappingData {
 class GridMap {
 public:
   GridMap() {}
-  ~GridMap() {}
+  ~GridMap();
 
   enum { POSE_STAMPED = 1, ODOMETRY = 2, INVALID_IDX = -10000 };
 
@@ -198,6 +206,14 @@ public:
 private:
   MappingParameters mp_;
   MappingData md_;
+  std::mutex map_mutex_;
+
+  static double inflatedOccupancyTime();
+  double inflatedOccupancyDeadline() const;
+  inline bool isInflatedOccupied(int address) const;
+  void markInflatedOccupied(int address, double deadline);
+  void clearInflatedRegion(const Eigen::Vector3i& min_id, const Eigen::Vector3i& max_id);
+  void resetInflatedRegion(const Eigen::Vector3d& min_pos, const Eigen::Vector3d& max_pos);
 
   // get depth image and camera pose
   void depthPoseCallback(const sensor_msgs::ImageConstPtr& img,
@@ -207,8 +223,10 @@ private:
   void depthOdomCallback(const sensor_msgs::ImageConstPtr& img, const nav_msgs::OdometryConstPtr& odom);
   void ego_depthOdomCallback(const std_msgs::Empty::ConstPtr&);
 
+  // Cache LiDAR data on the shared queue and process it on the trigger queue.
   void cloudCallback(const sensor_msgs::PointCloud2ConstPtr& img);
-  void odomCallback(const nav_msgs::OdometryConstPtr& odom);
+  void lidarOdomCallback(const nav_msgs::OdometryConstPtr& odom);
+  void ego_lidarCallback(const std_msgs::Empty::ConstPtr&);
 
   // update occupancy by raycasting
   // void updateOccupancyCallback(const ros::TimerEvent& /*event*/);
@@ -245,6 +263,16 @@ private:
   ros::CallbackQueue ego_depthOdom_queue_;
   std::shared_ptr<ros::NodeHandle> ego_depthOdom_nh_;
   std::unique_ptr<ros::AsyncSpinner> ego_depthOdom_spinner_; 
+
+  ros::CallbackQueue lidar_queue_;
+  std::shared_ptr<ros::NodeHandle> lidar_nh_;
+  std::unique_ptr<ros::AsyncSpinner> lidar_spinner_;
+  ros::Subscriber ego_lidar_trigger_;
+
+  std::mutex sensor_input_mutex_;
+  sensor_msgs::PointCloud2ConstPtr latest_lidar_cloud_;
+  Eigen::Vector3d lidar_position_;
+  bool has_lidar_odom_ = false;
 
   shared_ptr<message_filters::Subscriber<sensor_msgs::Image>> depth_sub_;
   shared_ptr<message_filters::Subscriber<geometry_msgs::PoseStamped>> pose_sub_;
@@ -305,7 +333,7 @@ inline bool GridMap::isKnownFree(const Eigen::Vector3i& id) {
 
   // return md_.occupancy_buffer_[adr] >= mp_.clamp_min_log_ &&
   //     md_.occupancy_buffer_[adr] < mp_.min_occupancy_log_;
-  return md_.occupancy_buffer_[adr] >= mp_.clamp_min_log_ && md_.occupancy_buffer_inflate_[adr] == 0;
+  return md_.occupancy_buffer_[adr] >= mp_.clamp_min_log_ && !isInflatedOccupied(adr);
 }
 
 inline bool GridMap::isKnownOccupied(const Eigen::Vector3i& id) {
@@ -313,7 +341,7 @@ inline bool GridMap::isKnownOccupied(const Eigen::Vector3i& id) {
   boundIndex(id1);
   int adr = toAddress(id1);
 
-  return md_.occupancy_buffer_inflate_[adr] == 1;
+  return isInflatedOccupied(adr);
 }
 
 inline void GridMap::setOccupied(Eigen::Vector3d pos) {
@@ -322,8 +350,8 @@ inline void GridMap::setOccupied(Eigen::Vector3d pos) {
   Eigen::Vector3i id;
   posToIndex(pos, id);
 
-  md_.occupancy_buffer_inflate_[id(0) * mp_.map_voxel_num_(1) * mp_.map_voxel_num_(2) +
-                                id(1) * mp_.map_voxel_num_(2) + id(2)] = 1;
+  std::lock_guard<std::mutex> lock(map_mutex_);
+  markInflatedOccupied(toAddress(id), inflatedOccupancyDeadline());
 }
 
 inline void GridMap::setOccupancy(Eigen::Vector3d pos, double occ) {
@@ -355,7 +383,13 @@ inline int GridMap::getInflateOccupancy(Eigen::Vector3d pos) {
   Eigen::Vector3i id;
   posToIndex(pos, id);
 
-  return int(md_.occupancy_buffer_inflate_[toAddress(id)]);
+  return isInflatedOccupied(toAddress(id));
+}
+
+inline bool GridMap::isInflatedOccupied(int address) const {
+  const double deadline = md_.occupancy_buffer_inflate_[address].load(std::memory_order_relaxed);
+  return deadline > 0.0 &&
+         (mp_.inflated_occupancy_lifetime_ == 0.0 || deadline > inflatedOccupancyTime());
 }
 
 inline int GridMap::getOccupancy(Eigen::Vector3i id) {
