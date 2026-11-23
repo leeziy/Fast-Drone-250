@@ -7,6 +7,7 @@
   <arg name="camera_pose_topic"/>
   <arg name="depth_topic"/>
   <arg name="cloud_topic"/>
+  <arg name="inflated_occupancy_lifetime" default="1.0"/>
 
   <arg name="cx"/>
   <arg name="cy"/>
@@ -93,6 +94,8 @@
     <param name="grid_map/local_update_range_y"  value="7" /> 
     <param name="grid_map/local_update_range_z"  value="5" /> 
     <param name="grid_map/obstacles_inflation"     value="0.5" /> 
+    <!-- Seconds. Zero keeps the regular local map clearing behavior. -->
+    <param name="grid_map/inflated_occupancy_lifetime" value="$(arg inflated_occupancy_lifetime)" type="double"/>
     <param name="grid_map/local_map_margin" value="10"/>
     <param name="grid_map/ground_height"        value="0.2"/>
     <!-- camera parameter -->
