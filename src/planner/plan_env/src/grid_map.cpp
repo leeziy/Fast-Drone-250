@@ -1,6 +1,6 @@
 #include "plan_env/grid_map.h"
 #include <unistd.h>
-#include <sys/syscall.h>
+#include <plan_env/trace_marker.h>
 #include <stdint.h>
 
 #include <cmath>
@@ -715,7 +715,7 @@ void GridMap::clearAndInflateLocalMap()
 std::atomic<double> vis_wcet{0.0};
 void GridMap::visCallback(const ros::TimerEvent & /*event*/)
 {
-  syscall(SYS_kill, 0x11111190, 0);
+  ego_planner::TraceMarkerScope trace_marker{0x11111280};
   auto t0 = std::chrono::steady_clock::now();
 
   publishMapInflate(true);
@@ -725,13 +725,12 @@ void GridMap::visCallback(const ros::TimerEvent & /*event*/)
   double t_loop = std::chrono::duration<double>(t1 - t0).count();
   double t_loop_old = vis_wcet.load(std::memory_order_relaxed);
   while (t_loop > t_loop_old && !vis_wcet.compare_exchange_weak(t_loop_old, t_loop)) {}
-  syscall(SYS_kill, 0x11111191, 0);
 }
 
 std::atomic<double> updateOccupancy_wcet{0.0};
 void GridMap::updateOccupancyCallback(const ros::TimerEvent & /*event*/)
 {
-  syscall(SYS_kill, 0x11111200, 0);
+  ego_planner::TraceMarkerScope trace_marker{0x11111230};
   auto t0 = std::chrono::steady_clock::now();
   std::lock_guard<std::mutex> lock(map_mutex_);
   
@@ -782,7 +781,6 @@ void GridMap::updateOccupancyCallback(const ros::TimerEvent & /*event*/)
   double t_loop = std::chrono::duration<double>(t1 - t0).count();
   double t_loop_old = updateOccupancy_wcet.load(std::memory_order_relaxed);
   while (t_loop > t_loop_old && !updateOccupancy_wcet.compare_exchange_weak(t_loop_old, t_loop)) {}
-  syscall(SYS_kill, 0x11111201, 0);
 }
 
 void GridMap::depthPoseCallback(const sensor_msgs::ImageConstPtr &img,
@@ -832,6 +830,7 @@ void GridMap::lidarOdomCallback(const nav_msgs::OdometryConstPtr &odom)
 
 void GridMap::cloudCallback(const sensor_msgs::PointCloud2ConstPtr &img)
 {
+  ego_planner::TraceMarkerScope trace_marker{0x11111200};
 
   pcl::PointCloud<pcl::PointXYZ> latest_cloud;
   pcl::fromROSMsg(*img, latest_cloud);
@@ -1097,7 +1096,7 @@ std::atomic<double> depthOdom_wcet{0.0};
 void GridMap::depthOdomCallback(const sensor_msgs::ImageConstPtr &img,
                                 const nav_msgs::OdometryConstPtr &odom)
 {
-  syscall(SYS_kill, 0x11111210, 0);
+  ego_planner::TraceMarkerScope trace_marker{0x11111220};
   auto t0 = std::chrono::steady_clock::now();
   std::lock_guard<std::mutex> lock(map_mutex_);
   /* get pose */
@@ -1135,5 +1134,4 @@ void GridMap::depthOdomCallback(const sensor_msgs::ImageConstPtr &img,
   double t_loop = std::chrono::duration<double>(t1 - t0).count();
   double t_loop_old = depthOdom_wcet.load(std::memory_order_relaxed);
   while (t_loop > t_loop_old && !depthOdom_wcet.compare_exchange_weak(t_loop_old, t_loop)) {}
-  syscall(SYS_kill, 0x11111211, 0);
 }
